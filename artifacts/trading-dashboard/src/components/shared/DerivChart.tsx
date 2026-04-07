@@ -219,14 +219,11 @@ export function DerivChart({ symbol, timeframe = "H1", height = 580 }: DerivChar
 
     charts.current = [mc, rc, macdC];
 
-    // ── sync crosshair across all three panes ──
-    mc.subscribeCrosshairMove(p => {
-      if (p.time) {
-        rc.setCrosshairPosition(0, p.time, rsiS.current!);
-        macdC.setCrosshairPosition(0, p.time, macdLS.current!);
-      } else {
-        rc.clearCrosshairPosition();
-        macdC.clearCrosshairPosition();
+    // ── sync time scale across all three panes ──
+    mc.timeScale().subscribeVisibleLogicalRangeChange(range => {
+      if (range) {
+        rc.timeScale().setVisibleLogicalRange(range);
+        macdC.timeScale().setVisibleLogicalRange(range);
       }
     });
 
