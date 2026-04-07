@@ -124,11 +124,7 @@ function TradingViewChart({ symbol, timeframe = "H1", height = 580 }: TradingVie
         disabled_features: [
           "volume_force_overlay",
         ],
-        studies: [
-          "RSI@tv-basicstudies",
-          "MACD@tv-basicstudies",
-          "BB@tv-basicstudies",
-        ],
+        studies: [],
         show_popup_button: true,
         details: true,
         hotlist: false,
