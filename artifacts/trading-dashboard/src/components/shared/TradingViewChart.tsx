@@ -96,70 +96,47 @@ function TradingViewChart({ symbol, timeframe = "H1", height = 580 }: TradingVie
       }
 
       widgetRef.current = new window.TradingView.widget({
-        // Identity
         container_id: id,
         symbol: tvSymbol,
         interval: tvInterval,
-
-        // Layout — autosize fills the container; height is a CSS fallback
         autosize: true,
-
-        // Theme — matches the dark dashboard
         theme: "dark",
-        style: "1",           // Candlestick
+        style: "1",
         locale: "en",
         timezone: "exchange",
-
-        // Colours matching the app's dark palette
         toolbar_bg: "#0d0d14",
         backgroundColor: "rgba(10,10,20,1)",
         gridColor: "rgba(255,255,255,0.03)",
-
-        // Toolbars & UI — show everything like TradingView.com
         hide_top_toolbar: false,
         hide_legend: false,
         hide_side_toolbar: false,
         withdateranges: true,
-        allow_symbol_change: true,   // Let the user search any symbol in-chart
+        allow_symbol_change: true,
         watchlist: [],
-
-        // Features — countdown bar + all live-chart UX
         enabled_features: [
-          "countdown",
           "use_localstorage_for_settings",
           "side_toolbar_in_fullscreen_mode",
           "header_in_fullscreen_mode",
           "adaptive_logo",
-          "show_interval_dialog_on_key_press",
-          "header_saveload",
-          "header_settings",
-          "header_fullscreen_button",
         ],
         disabled_features: [
           "volume_force_overlay",
         ],
-
-        // Pre-load indicators (no login required for basic studies)
         studies: [
           "RSI@tv-basicstudies",
           "MACD@tv-basicstudies",
           "BB@tv-basicstudies",
         ],
-        studies_overrides: {
-          "rsi.rsi.color": "#a78bfa",
-          "rsi.rsi.linewidth": 1.5,
-          "macd.macd.color": "#facc15",
-          "macd.signal.color": "#f87171",
-          "bollinger bands.upper.color": "#60a5fa",
-          "bollinger bands.lower.color": "#60a5fa",
-        },
-
-        // Show the drawing toolbar
         show_popup_button: true,
-
-        // Branding
+        details: true,
+        hotlist: false,
+        calendar: false,
+        news: [],
         enable_publishing: false,
         save_image: true,
+        copyright_style: {
+          override: false,
+        },
       });
     }
 
