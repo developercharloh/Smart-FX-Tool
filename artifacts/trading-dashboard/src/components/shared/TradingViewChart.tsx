@@ -123,39 +123,43 @@ function TradingViewChart({ symbol, timeframe = "H1", height = 580 }: TradingVie
         allow_symbol_change: true,   // Let the user search any symbol in-chart
         watchlist: [],
 
-        // Real-time streaming — enabled by default; these options reinforce it
+        // Features — countdown bar + all live-chart UX
         enabled_features: [
+          "countdown",
           "use_localstorage_for_settings",
           "side_toolbar_in_fullscreen_mode",
           "header_in_fullscreen_mode",
           "adaptive_logo",
+          "show_interval_dialog_on_key_press",
+          "header_saveload",
+          "header_settings",
+          "header_fullscreen_button",
         ],
         disabled_features: [
           "volume_force_overlay",
         ],
 
-        // Default indicators pre-loaded
+        // Pre-load indicators (no login required for basic studies)
         studies: [
           "RSI@tv-basicstudies",
           "MACD@tv-basicstudies",
           "BB@tv-basicstudies",
         ],
+        studies_overrides: {
+          "rsi.rsi.color": "#a78bfa",
+          "rsi.rsi.linewidth": 1.5,
+          "macd.macd.color": "#facc15",
+          "macd.signal.color": "#f87171",
+          "bollinger bands.upper.color": "#60a5fa",
+          "bollinger bands.lower.color": "#60a5fa",
+        },
 
         // Show the drawing toolbar
         show_popup_button: true,
 
-        // Chart details panel
-        details: true,
-        hotlist: false,
-        calendar: false,
-        news: [],
-
         // Branding
         enable_publishing: false,
         save_image: true,
-        copyright_style: {
-          override: false,
-        },
       });
     }
 

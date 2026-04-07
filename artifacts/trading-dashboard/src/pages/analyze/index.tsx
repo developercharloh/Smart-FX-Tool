@@ -16,6 +16,15 @@ import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import TradingViewChart from "@/components/shared/TradingViewChart";
 import { LivePriceTicker } from "@/components/shared/LivePriceTicker";
+import { DerivChart } from "@/components/shared/DerivChart";
+
+const SYNTHETIC_SYMBOLS = new Set([
+  "R_10","R_25","R_50","R_75","R_100",
+  "1HZ10V","1HZ25V","1HZ50V","1HZ75V","1HZ100V",
+  "BOOM300","BOOM500","BOOM1000","CRASH300","CRASH500","CRASH1000",
+  "JD10","JD25","JD50","JD75","JD100","STPIDX10",
+]);
+const isSynthetic = (sym: string) => SYNTHETIC_SYMBOLS.has(sym);
 
 const PAIR_GROUPS = [
   { label: "Forex Majors", symbols: ["EURUSD","GBPUSD","USDJPY","AUDUSD","USDCAD","NZDUSD","USDCHF"] },
@@ -339,9 +348,17 @@ export default function Analyze() {
           <Separator className="opacity-30" />
           {/* Live price ticker — tick-by-tick feed from Deriv WebSocket */}
           <LivePriceTicker symbol={chartPair} />
-          <TradingViewChart symbol={chartPair} timeframe={chartTimeframe} height={580} />
+          {/* Synthetic indices → Deriv WebSocket chart with live candles + countdown */}
+          {/* Forex pairs → TradingView chart with OANDA feed */}
+          {isSynthetic(chartPair) ? (
+            <DerivChart symbol={chartPair} timeframe={chartTimeframe} height={580} />
+          ) : (
+            <TradingViewChart symbol={chartPair} timeframe={chartTimeframe} height={580} />
+          )}
           <p className="text-xs text-muted-foreground/50 text-right">
-            Chart powered by TradingView. Price feed via Deriv WebSocket (real-time).
+            {isSynthetic(chartPair)
+              ? "Live candles via Deriv WebSocket. EMA 20/50 · RSI 14 · Countdown bar."
+              : "Chart powered by TradingView · OANDA real-time feed · BB · RSI · MACD."}
           </p>
         </div>
       )}
