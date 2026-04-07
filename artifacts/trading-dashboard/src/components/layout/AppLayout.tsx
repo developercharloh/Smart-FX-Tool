@@ -3,7 +3,7 @@ import { Sidebar } from "./Sidebar";
 
 export function AppLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="flex flex-col h-screen w-full bg-background overflow-hidden text-foreground selection:bg-primary/30">
+    <div className="flex flex-col h-screen w-full bg-background overflow-hidden text-foreground selection:bg-primary/30 relative">
       <Sidebar />
       <main className="flex-1 flex flex-col overflow-hidden relative">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(0,255,255,0.03),rgba(0,0,0,0))] pointer-events-none" />
