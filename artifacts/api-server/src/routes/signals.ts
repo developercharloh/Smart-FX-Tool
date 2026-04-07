@@ -142,33 +142,39 @@ router.delete("/:id", async (req, res) => {
 
 function generateAnalysis(pair: string, timeframe: string) {
   const pairPrices: Record<string, number> = {
-    EURUSD: 1.085,
-    GBPUSD: 1.27,
-    USDJPY: 149.5,
-    AUDUSD: 0.652,
-    USDCAD: 1.365,
-    NZDUSD: 0.601,
-    USDCHF: 0.896,
-    GBPJPY: 189.8,
-    EURJPY: 162.3,
-    EURGBP: 0.853,
+    // Forex majors
+    EURUSD: 1.085, GBPUSD: 1.27, USDJPY: 149.5,
+    AUDUSD: 0.652, USDCAD: 1.365, NZDUSD: 0.601, USDCHF: 0.896,
+    // Forex crosses
+    GBPJPY: 189.8, EURJPY: 162.3, EURGBP: 0.853,
+    EURCHF: 0.962, EURCAD: 1.476, GBPCAD: 1.716, AUDCAD: 0.892, CADJPY: 109.6,
+    // Deriv Volatility Indices
+    R_10: 10245.32, R_25: 8932.15, R_50: 6543.78, R_75: 12876.44, R_100: 22345.67,
+    "1HZ10V": 3456.21, "1HZ25V": 7823.44, "1HZ50V": 5621.33, "1HZ75V": 9034.55, "1HZ100V": 18234.12,
+    // Boom & Crash
+    BOOM300: 7823.50, BOOM500: 6543.20, BOOM1000: 5234.80,
+    CRASH300: 8912.30, CRASH500: 7234.60, CRASH1000: 5876.40,
+    // Jump Indices
+    JD10: 5234.12, JD25: 6891.34, JD50: 9123.56, JD75: 12456.78, JD100: 18765.43,
   };
 
   const basePrice = pairPrices[pair] || 1.0;
   const isJpy = pair.includes("JPY");
-  const pipSize = isJpy ? 0.01 : 0.0001;
+  const isSynthetic = ["R_", "1HZ", "BOOM", "CRASH", "JD", "STPIDX"].some(p => pair.startsWith(p));
+  const pipSize = isSynthetic ? basePrice * 0.0005 : isJpy ? 0.01 : 0.0001;
   const spread = pipSize * 2;
 
   const isBuy = Math.random() > 0.45;
   const signal = isBuy ? "BUY" : "SELL";
-  const entry = parseFloat((basePrice + (Math.random() - 0.5) * pipSize * 10).toFixed(isJpy ? 2 : 5));
+  const decimals = isSynthetic ? 2 : isJpy ? 2 : 5;
+  const entry = parseFloat((basePrice + (Math.random() - 0.5) * pipSize * 10).toFixed(decimals));
   const slPips = Math.floor(Math.random() * 20 + 15);
   const tpPips = Math.floor(slPips * (1.5 + Math.random()));
   const stopLoss = parseFloat(
-    (isBuy ? entry - slPips * pipSize : entry + slPips * pipSize).toFixed(isJpy ? 2 : 5)
+    (isBuy ? entry - slPips * pipSize : entry + slPips * pipSize).toFixed(decimals)
   );
   const takeProfit = parseFloat(
-    (isBuy ? entry + tpPips * pipSize : entry - tpPips * pipSize).toFixed(isJpy ? 2 : 5)
+    (isBuy ? entry + tpPips * pipSize : entry - tpPips * pipSize).toFixed(decimals)
   );
   const riskRewardRatio = parseFloat((tpPips / slPips).toFixed(2));
 
@@ -188,10 +194,10 @@ function generateAnalysis(pair: string, timeframe: string) {
   if (reasons.length < 2) reasons.push(isBuy ? "Bullish market structure" : "Bearish market structure");
   reasons.push("No high-impact news nearby");
 
-  const supportHigh = parseFloat((Math.min(entry, stopLoss) + Math.abs(entry - stopLoss) * 0.3).toFixed(isJpy ? 2 : 5));
-  const supportLow = parseFloat((Math.min(entry, stopLoss) - pipSize * 5).toFixed(isJpy ? 2 : 5));
-  const resistanceHigh = parseFloat((Math.max(entry, takeProfit) + pipSize * 5).toFixed(isJpy ? 2 : 5));
-  const resistanceLow = parseFloat((Math.max(entry, takeProfit) - Math.abs(entry - takeProfit) * 0.2).toFixed(isJpy ? 2 : 5));
+  const supportHigh = parseFloat((Math.min(entry, stopLoss) + Math.abs(entry - stopLoss) * 0.3).toFixed(decimals));
+  const supportLow = parseFloat((Math.min(entry, stopLoss) - pipSize * 5).toFixed(decimals));
+  const resistanceHigh = parseFloat((Math.max(entry, takeProfit) + pipSize * 5).toFixed(decimals));
+  const resistanceLow = parseFloat((Math.max(entry, takeProfit) - Math.abs(entry - takeProfit) * 0.2).toFixed(decimals));
 
   return {
     pair,
