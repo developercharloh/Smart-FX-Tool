@@ -10,6 +10,7 @@ import SignalsList from "@/pages/signals/index";
 import SignalDetail from "@/pages/signals/detail";
 import NewSignal from "@/pages/signals/new";
 import Analyze from "@/pages/analyze/index";
+import MarketNews from "@/pages/news/index";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -29,6 +30,7 @@ function Router() {
         <Route path="/signals/new" component={NewSignal} />
         <Route path="/signals/:id" component={SignalDetail} />
         <Route path="/analyze" component={Analyze} />
+        <Route path="/news" component={MarketNews} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>

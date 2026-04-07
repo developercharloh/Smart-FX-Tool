@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Activity, BarChart2, Plus, Zap, LayoutDashboard, Settings } from "lucide-react";
+import { Activity, BarChart2, Plus, Zap, LayoutDashboard, Settings, Newspaper } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function Sidebar() {
@@ -9,6 +9,7 @@ export function Sidebar() {
     { href: "/", label: "Dashboard", icon: LayoutDashboard },
     { href: "/signals", label: "All Signals", icon: Activity },
     { href: "/analyze", label: "Live Analyze", icon: Zap },
+    { href: "/news", label: "Market News", icon: Newspaper },
     { href: "/signals/new", label: "Manual Signal", icon: Plus },
   ];
 
