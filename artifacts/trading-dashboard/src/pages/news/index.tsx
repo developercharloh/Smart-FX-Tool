@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Newspaper, RefreshCw, ExternalLink, Clock, Tag } from "lucide-react";
+import { Newspaper, RefreshCw, ExternalLink, Clock, Tag, AlertTriangle, Minus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -13,6 +13,7 @@ interface NewsItem {
   source: string;
   category: string;
   publishedAt: string;
+  impact: "major" | "minor";
   imageUrl?: string;
 }
 
@@ -30,6 +31,7 @@ const SOURCE_COLORS: Record<string, string> = {
 };
 
 const CATEGORIES = ["All", "Forex", "Markets", "Business"];
+const IMPACTS = ["All", "Major", "Minor"] as const;
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -49,9 +51,37 @@ async function fetchNews(): Promise<NewsResponse> {
   return res.json();
 }
 
+function FilterButton({
+  active,
+  onClick,
+  children,
+  className,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "px-3 py-1 rounded-full text-xs font-semibold border transition-colors",
+        active
+          ? "bg-primary/10 text-primary border-primary/30"
+          : "bg-card text-muted-foreground border-border/50 hover:border-border",
+        className
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
 export default function MarketNews() {
   const [activeCategory, setActiveCategory] = useState("All");
   const [activeSource, setActiveSource] = useState("All");
+  const [activeImpact, setActiveImpact] = useState<"All" | "Major" | "Minor">("All");
 
   const { data, isLoading, isError, refetch, isFetching } = useQuery<NewsResponse>({
     queryKey: ["market-news"],
@@ -60,13 +90,20 @@ export default function MarketNews() {
     refetchInterval: 5 * 60 * 1000,
   });
 
-  const sources = data ? ["All", ...Array.from(new Set(data.items.map((i) => i.source)))] : ["All"];
+  const sources = data
+    ? ["All", ...Array.from(new Set(data.items.map((i) => i.source)))]
+    : ["All"];
 
   const filtered = (data?.items || []).filter((item) => {
     const catMatch = activeCategory === "All" || item.category === activeCategory;
     const srcMatch = activeSource === "All" || item.source === activeSource;
-    return catMatch && srcMatch;
+    const impactMatch =
+      activeImpact === "All" || item.impact === activeImpact.toLowerCase();
+    return catMatch && srcMatch && impactMatch;
   });
+
+  const majorCount = (data?.items || []).filter((i) => i.impact === "major").length;
+  const minorCount = (data?.items || []).filter((i) => i.impact === "minor").length;
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -90,43 +127,52 @@ export default function MarketNews() {
         </Button>
       </div>
 
-      {/* Filters */}
+      {/* Impact toggle — prominent */}
+      <div className="flex items-center gap-3 p-4 rounded-xl border border-border/50 bg-card/50">
+        <span className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Impact:</span>
+        <div className="flex items-center gap-2">
+          <FilterButton active={activeImpact === "All"} onClick={() => setActiveImpact("All")}>
+            All {data && `(${data.items.length})`}
+          </FilterButton>
+          <FilterButton
+            active={activeImpact === "Major"}
+            onClick={() => setActiveImpact("Major")}
+            className={activeImpact === "Major" ? "!bg-rose-500/10 !text-rose-400 !border-rose-500/30" : ""}
+          >
+            <span className="flex items-center gap-1.5">
+              <AlertTriangle className="w-3 h-3" />
+              Major {data && `(${majorCount})`}
+            </span>
+          </FilterButton>
+          <FilterButton
+            active={activeImpact === "Minor"}
+            onClick={() => setActiveImpact("Minor")}
+            className={activeImpact === "Minor" ? "!bg-slate-500/10 !text-slate-400 !border-slate-500/30" : ""}
+          >
+            <span className="flex items-center gap-1.5">
+              <Minus className="w-3 h-3" />
+              Minor {data && `(${minorCount})`}
+            </span>
+          </FilterButton>
+        </div>
+      </div>
+
+      {/* Secondary filters */}
       <div className="flex flex-wrap gap-4">
-        {/* Category filter */}
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Category:</span>
           {CATEGORIES.map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setActiveCategory(cat)}
-              className={cn(
-                "px-3 py-1 rounded-full text-xs font-semibold border transition-colors",
-                activeCategory === cat
-                  ? "bg-primary/10 text-primary border-primary/30"
-                  : "bg-card text-muted-foreground border-border/50 hover:border-border"
-              )}
-            >
+            <FilterButton key={cat} active={activeCategory === cat} onClick={() => setActiveCategory(cat)}>
               {cat}
-            </button>
+            </FilterButton>
           ))}
         </div>
-
-        {/* Source filter */}
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Source:</span>
           {sources.map((src) => (
-            <button
-              key={src}
-              onClick={() => setActiveSource(src)}
-              className={cn(
-                "px-3 py-1 rounded-full text-xs font-semibold border transition-colors",
-                activeSource === src
-                  ? "bg-primary/10 text-primary border-primary/30"
-                  : "bg-card text-muted-foreground border-border/50 hover:border-border"
-              )}
-            >
+            <FilterButton key={src} active={activeSource === src} onClick={() => setActiveSource(src)}>
               {src}
-            </button>
+            </FilterButton>
           ))}
         </div>
       </div>
@@ -169,7 +215,7 @@ export default function MarketNews() {
         </div>
       )}
 
-      {/* News grid */}
+      {/* Empty state */}
       {!isLoading && !isError && filtered.length === 0 && (
         <div className="text-center py-16 text-muted-foreground border border-dashed border-border rounded-xl">
           <Newspaper className="w-10 h-10 mx-auto mb-3 opacity-30" />
@@ -177,6 +223,7 @@ export default function MarketNews() {
         </div>
       )}
 
+      {/* News grid */}
       {!isLoading && filtered.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {filtered.map((item) => (
@@ -185,20 +232,37 @@ export default function MarketNews() {
               href={item.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="group bg-card border border-border/50 rounded-xl p-5 flex flex-col gap-3 hover:border-primary/40 hover:bg-card/80 transition-all duration-150"
+              className={cn(
+                "group bg-card border rounded-xl p-5 flex flex-col gap-3 hover:bg-card/80 transition-all duration-150",
+                item.impact === "major"
+                  ? "border-rose-500/20 hover:border-rose-500/40"
+                  : "border-border/50 hover:border-border"
+              )}
             >
               {/* Top row */}
               <div className="flex items-center justify-between gap-2">
-                <Badge
-                  variant="outline"
-                  className={cn(
-                    "text-[10px] font-bold uppercase tracking-wider border",
-                    SOURCE_COLORS[item.source] || "bg-muted text-muted-foreground border-border"
+                <div className="flex items-center gap-2">
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "text-[10px] font-bold uppercase tracking-wider border",
+                      SOURCE_COLORS[item.source] || "bg-muted text-muted-foreground border-border"
+                    )}
+                  >
+                    {item.source}
+                  </Badge>
+                  {/* Impact indicator */}
+                  {item.impact === "major" ? (
+                    <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-full px-2 py-0.5">
+                      <AlertTriangle className="w-2.5 h-2.5" /> Major
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground bg-muted/30 border border-border/30 rounded-full px-2 py-0.5">
+                      <Minus className="w-2.5 h-2.5" /> Minor
+                    </span>
                   )}
-                >
-                  {item.source}
-                </Badge>
-                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                </div>
+                <div className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
                   <Clock className="w-3 h-3" />
                   {timeAgo(item.publishedAt)}
                 </div>
