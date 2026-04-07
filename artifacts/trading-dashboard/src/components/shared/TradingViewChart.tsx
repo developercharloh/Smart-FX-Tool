@@ -19,28 +19,28 @@ const TIMEFRAME_MAP: Record<string, string> = {
 };
 
 const TV_SYMBOL_MAP: Record<string, string> = {
-  // Forex majors
-  EURUSD: "FX:EURUSD",
-  GBPUSD: "FX:GBPUSD",
-  USDJPY: "FX:USDJPY",
-  AUDUSD: "FX:AUDUSD",
-  USDCAD: "FX:USDCAD",
-  NZDUSD: "FX:NZDUSD",
-  USDCHF: "FX:USDCHF",
+  // Forex majors — OANDA feed for real-time streaming
+  EURUSD: "OANDA:EURUSD",
+  GBPUSD: "OANDA:GBPUSD",
+  USDJPY: "OANDA:USDJPY",
+  AUDUSD: "OANDA:AUDUSD",
+  USDCAD: "OANDA:USDCAD",
+  NZDUSD: "OANDA:NZDUSD",
+  USDCHF: "OANDA:USDCHF",
   // Forex crosses
-  GBPJPY: "FX:GBPJPY",
-  EURJPY: "FX:EURJPY",
-  EURGBP: "FX:EURGBP",
-  EURCHF: "FX:EURCHF",
-  EURCAD: "FX:EURCAD",
-  GBPCAD: "FX:GBPCAD",
-  AUDCAD: "FX:AUDCAD",
-  CADJPY: "FX:CADJPY",
-  AUDNZD: "FX:AUDNZD",
-  AUDCHF: "FX:AUDCHF",
-  GBPCHF: "FX:GBPCHF",
-  NZDJPY: "FX:NZDJPY",
-  // Deriv Volatility Indices
+  GBPJPY: "OANDA:GBPJPY",
+  EURJPY: "OANDA:EURJPY",
+  EURGBP: "OANDA:EURGBP",
+  EURCHF: "OANDA:EURCHF",
+  EURCAD: "OANDA:EURCAD",
+  GBPCAD: "OANDA:GBPCAD",
+  AUDCAD: "OANDA:AUDCAD",
+  CADJPY: "OANDA:CADJPY",
+  AUDNZD: "OANDA:AUDNZD",
+  AUDCHF: "OANDA:AUDCHF",
+  GBPCHF: "OANDA:GBPCHF",
+  NZDJPY: "OANDA:NZDJPY",
+  // Deriv Volatility Indices (real-time streaming via Deriv feed)
   R_10: "DERIV:R_10",
   R_25: "DERIV:R_25",
   R_50: "DERIV:R_50",
@@ -76,16 +76,16 @@ interface TradingViewChartProps {
   height?: number;
 }
 
-function TradingViewChart({ symbol, timeframe = "H1", height = 520 }: TradingViewChartProps) {
+function TradingViewChart({ symbol, timeframe = "H1", height = 580 }: TradingViewChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const widgetRef = useRef<any>(null);
   const containerId = useRef(`tv_chart_${++widgetCounter}`);
 
-  const tvSymbol = TV_SYMBOL_MAP[symbol] || `FX:${symbol}`;
+  const tvSymbol = TV_SYMBOL_MAP[symbol] || `OANDA:${symbol}`;
   const tvInterval = TIMEFRAME_MAP[timeframe] || "60";
 
   useEffect(() => {
-    const containerId_ = containerId.current;
+    const id = containerId.current;
 
     function createWidget() {
       if (!containerRef.current || !window.TradingView) return;
@@ -96,29 +96,66 @@ function TradingViewChart({ symbol, timeframe = "H1", height = 520 }: TradingVie
       }
 
       widgetRef.current = new window.TradingView.widget({
-        container_id: containerId_,
-        width: "100%",
-        height: height,
+        // Identity
+        container_id: id,
         symbol: tvSymbol,
         interval: tvInterval,
-        timezone: "Etc/UTC",
+
+        // Layout — autosize fills the container; height is a CSS fallback
+        autosize: true,
+
+        // Theme — matches the dark dashboard
         theme: "dark",
-        style: "1",
+        style: "1",           // Candlestick
         locale: "en",
-        toolbar_bg: "#0f0f14",
-        backgroundColor: "rgba(10,10,18,1)",
-        gridColor: "rgba(255,255,255,0.04)",
-        enable_publishing: false,
+        timezone: "exchange",
+
+        // Colours matching the app's dark palette
+        toolbar_bg: "#0d0d14",
+        backgroundColor: "rgba(10,10,20,1)",
+        gridColor: "rgba(255,255,255,0.03)",
+
+        // Toolbars & UI — show everything like TradingView.com
         hide_top_toolbar: false,
         hide_legend: false,
-        save_image: false,
-        allow_symbol_change: false,
-        hide_volume: false,
-        studies: ["RSI@tv-basicstudies", "MACD@tv-basicstudies"],
+        hide_side_toolbar: false,
         withdateranges: true,
-        details: false,
+        allow_symbol_change: true,   // Let the user search any symbol in-chart
+        watchlist: [],
+
+        // Real-time streaming — enabled by default; these options reinforce it
+        enabled_features: [
+          "use_localstorage_for_settings",
+          "side_toolbar_in_fullscreen_mode",
+          "header_in_fullscreen_mode",
+          "adaptive_logo",
+        ],
+        disabled_features: [
+          "volume_force_overlay",
+        ],
+
+        // Default indicators pre-loaded
+        studies: [
+          "RSI@tv-basicstudies",
+          "MACD@tv-basicstudies",
+          "BB@tv-basicstudies",
+        ],
+
+        // Show the drawing toolbar
+        show_popup_button: true,
+
+        // Chart details panel
+        details: true,
         hotlist: false,
         calendar: false,
+        news: [],
+
+        // Branding
+        enable_publishing: false,
+        save_image: true,
+        copyright_style: {
+          override: false,
+        },
       });
     }
 
@@ -143,11 +180,14 @@ function TradingViewChart({ symbol, timeframe = "H1", height = 520 }: TradingVie
         widgetRef.current = null;
       }
     };
-  }, [tvSymbol, tvInterval, height]);
+  }, [tvSymbol, tvInterval]);
 
   return (
-    <div className="w-full rounded-xl overflow-hidden border border-border/40 bg-[#0a0a12]" style={{ minHeight: height }}>
-      <div id={containerId.current} ref={containerRef} style={{ height }} />
+    <div
+      className="w-full rounded-xl overflow-hidden border border-border/40"
+      style={{ height, minHeight: height, background: "rgba(10,10,20,1)" }}
+    >
+      <div id={containerId.current} ref={containerRef} style={{ width: "100%", height: "100%" }} />
     </div>
   );
 }
