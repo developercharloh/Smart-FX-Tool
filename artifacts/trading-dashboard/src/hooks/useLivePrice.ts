@@ -3,6 +3,8 @@ import { useState, useEffect, useRef } from "react";
 const DERIV_WS_URL = "wss://ws.binaryws.com/websockets/v3?app_id=1089";
 
 const DERIV_SYMBOL_MAP: Record<string, string> = {
+  // Commodities
+  XAUUSD: "frxXAUUSD",
   // Forex — Deriv uses frx prefix
   EURUSD: "frxEURUSD",
   GBPUSD: "frxGBPUSD",

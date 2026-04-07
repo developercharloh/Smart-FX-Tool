@@ -27,6 +27,8 @@ const TV_SYMBOL_MAP: Record<string, string> = {
   USDCAD: "OANDA:USDCAD",
   NZDUSD: "OANDA:NZDUSD",
   USDCHF: "OANDA:USDCHF",
+  // Commodities
+  XAUUSD: "OANDA:XAUUSD",
   // Forex crosses
   GBPJPY: "OANDA:GBPJPY",
   EURJPY: "OANDA:EURJPY",

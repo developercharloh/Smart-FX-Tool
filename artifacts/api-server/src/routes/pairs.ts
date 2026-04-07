@@ -11,6 +11,8 @@ const FOREX_PAIRS = [
   { symbol: "USDCAD", base: "USD", quote: "CAD", pip: 0.0001, decimals: 5 },
   { symbol: "NZDUSD", base: "NZD", quote: "USD", pip: 0.0001, decimals: 5 },
   { symbol: "USDCHF", base: "USD", quote: "CHF", pip: 0.0001, decimals: 5 },
+  // Commodities
+  { symbol: "XAUUSD", base: "XAU", quote: "USD", pip: 0.01, decimals: 2 },
   // Forex Crosses
   { symbol: "GBPJPY", base: "GBP", quote: "JPY", pip: 0.01, decimals: 3 },
   { symbol: "EURJPY", base: "EUR", quote: "JPY", pip: 0.01, decimals: 3 },

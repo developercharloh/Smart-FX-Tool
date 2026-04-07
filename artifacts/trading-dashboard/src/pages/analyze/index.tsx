@@ -26,6 +26,7 @@ const SYNTHETIC_SYMBOLS = new Set([
 ]);
 
 const PAIR_GROUPS = [
+  { label: "Commodities", symbols: ["XAUUSD"] },
   { label: "Forex Majors", symbols: ["EURUSD","GBPUSD","USDJPY","AUDUSD","USDCAD","NZDUSD","USDCHF"] },
   { label: "Forex Crosses", symbols: ["GBPJPY","EURJPY","EURGBP","EURCHF","EURCAD","GBPCAD","AUDCAD","CADJPY"] },
   { label: "Volatility Indices", symbols: ["R_10","R_25","R_50","R_75","R_100"] },
@@ -35,6 +36,7 @@ const PAIR_GROUPS = [
 ];
 
 const PAIR_LABELS: Record<string, string> = {
+  XAUUSD: "Gold vs US Dollar",
   R_10: "Volatility 10 Index", R_25: "Volatility 25 Index",
   R_50: "Volatility 50 Index", R_75: "Volatility 75 Index", R_100: "Volatility 100 Index",
   "1HZ10V": "Volatility 10 (1s) Index", "1HZ25V": "Volatility 25 (1s) Index",
