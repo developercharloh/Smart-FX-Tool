@@ -156,3 +156,25 @@
     @apply font-sans antialiased bg-background text-foreground;
   }
 }
+
+@keyframes flash-up {
+  0%   { color: #34d399; background-color: rgba(52,211,153,0.18); }
+  100% { color: inherit;  background-color: transparent; }
+}
+
+@keyframes flash-down {
+  0%   { color: #f87171; background-color: rgba(248,113,113,0.18); }
+  100% { color: inherit;  background-color: transparent; }
+}
+
+.price-flash-up {
+  animation: flash-up 0.45s ease-out forwards;
+  border-radius: 4px;
+  padding: 0 2px;
+}
+
+.price-flash-down {
+  animation: flash-down 0.45s ease-out forwards;
+  border-radius: 4px;
+  padding: 0 2px;
+}

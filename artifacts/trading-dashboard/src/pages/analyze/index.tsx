@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import TradingViewChart from "@/components/shared/TradingViewChart";
+import { LivePriceTicker } from "@/components/shared/LivePriceTicker";
 
 const PAIR_GROUPS = [
   { label: "Forex Majors", symbols: ["EURUSD","GBPUSD","USDJPY","AUDUSD","USDCAD","NZDUSD","USDCHF"] },
@@ -336,9 +337,11 @@ export default function Analyze() {
             )}
           </div>
           <Separator className="opacity-30" />
-          <TradingViewChart symbol={chartPair} timeframe={chartTimeframe} height={540} />
+          {/* Live price ticker — tick-by-tick feed from Deriv WebSocket */}
+          <LivePriceTicker symbol={chartPair} />
+          <TradingViewChart symbol={chartPair} timeframe={chartTimeframe} height={580} />
           <p className="text-xs text-muted-foreground/50 text-right">
-            Chart powered by TradingView. Data via Deriv for synthetic indices.
+            Chart powered by TradingView. Price feed via Deriv WebSocket (real-time).
           </p>
         </div>
       )}
