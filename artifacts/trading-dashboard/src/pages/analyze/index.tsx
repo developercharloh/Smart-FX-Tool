@@ -548,9 +548,9 @@ export default function Analyze() {
           <Separator className="opacity-30" />
           <LivePriceTicker symbol={chartPair} />
           {SYNTHETIC_SYMBOLS.has(chartPair) ? (
-            <SyntheticChart symbol={chartPair} timeframe={chartTimeframe} height={580} />
+            <SyntheticChart key={`${chartPair}-${chartTimeframe}`} symbol={chartPair} timeframe={chartTimeframe} height={580} />
           ) : (
-            <TradingViewChart symbol={chartPair} timeframe={chartTimeframe} height={580} />
+            <TradingViewChart key={`${chartPair}-${chartTimeframe}`} symbol={chartPair} timeframe={chartTimeframe} height={580} />
           )}
           <p className="text-xs text-muted-foreground/50 text-right">
             {SYNTHETIC_SYMBOLS.has(chartPair)
