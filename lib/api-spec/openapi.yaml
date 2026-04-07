@@ -3,13 +3,17 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Smart Forex Trading Analysis API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: signals
+    description: Trading signal operations
+  - name: pairs
+    description: Forex pair operations
 paths:
   /healthz:
     get:
@@ -24,6 +28,141 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /signals:
+    get:
+      operationId: listSignals
+      tags: [signals]
+      summary: List all trading signals
+      parameters:
+        - name: pair
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: signal
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [BUY, SELL]
+        - name: timeframe
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of signals
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Signal"
+    post:
+      operationId: createSignal
+      tags: [signals]
+      summary: Create a new trading signal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSignalBody"
+      responses:
+        "201":
+          description: Created signal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Signal"
+
+  /signals/{id}:
+    get:
+      operationId: getSignal
+      tags: [signals]
+      summary: Get a specific signal
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Signal details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Signal"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteSignal
+      tags: [signals]
+      summary: Delete a signal
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /signals/analyze:
+    post:
+      operationId: analyzeSignal
+      tags: [signals]
+      summary: Run live analysis on a forex pair
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnalyzeRequest"
+      responses:
+        "200":
+          description: Analysis result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalysisResult"
+
+  /signals/dashboard-summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [signals]
+      summary: Dashboard statistics summary
+      responses:
+        "200":
+          description: Summary stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  /pairs:
+    get:
+      operationId: listPairs
+      tags: [pairs]
+      summary: List supported forex pairs
+      responses:
+        "200":
+          description: List of forex pairs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ForexPair"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +173,284 @@ components:
       required:
         - status
 
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    Signal:
+      type: object
+      properties:
+        id:
+          type: integer
+        pair:
+          type: string
+        signal:
+          type: string
+          enum: [BUY, SELL]
+        timeframe:
+          type: string
+        entry:
+          type: number
+        stopLoss:
+          type: number
+        takeProfit:
+          type: number
+        confidenceScore:
+          type: integer
+          minimum: 0
+          maximum: 100
+        reasons:
+          type: array
+          items:
+            type: string
+        structureType:
+          type: string
+          enum: [BOS, CHOCH, NONE]
+        trend:
+          type: string
+          enum: [BULLISH, BEARISH, NEUTRAL]
+        hasOrderBlock:
+          type: boolean
+        hasSupportResistance:
+          type: boolean
+        riskRewardRatio:
+          type: number
+        status:
+          type: string
+          enum: [ACTIVE, HIT_TP, HIT_SL, EXPIRED]
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - pair
+        - signal
+        - timeframe
+        - entry
+        - stopLoss
+        - takeProfit
+        - confidenceScore
+        - reasons
+        - structureType
+        - trend
+        - hasOrderBlock
+        - hasSupportResistance
+        - riskRewardRatio
+        - status
+        - createdAt
+
+    CreateSignalBody:
+      type: object
+      properties:
+        pair:
+          type: string
+        signal:
+          type: string
+          enum: [BUY, SELL]
+        timeframe:
+          type: string
+        entry:
+          type: number
+        stopLoss:
+          type: number
+        takeProfit:
+          type: number
+        confidenceScore:
+          type: integer
+          minimum: 0
+          maximum: 100
+        reasons:
+          type: array
+          items:
+            type: string
+        structureType:
+          type: string
+          enum: [BOS, CHOCH, NONE]
+        trend:
+          type: string
+          enum: [BULLISH, BEARISH, NEUTRAL]
+        hasOrderBlock:
+          type: boolean
+        hasSupportResistance:
+          type: boolean
+        riskRewardRatio:
+          type: number
+      required:
+        - pair
+        - signal
+        - timeframe
+        - entry
+        - stopLoss
+        - takeProfit
+        - confidenceScore
+        - reasons
+        - structureType
+        - trend
+        - hasOrderBlock
+        - hasSupportResistance
+        - riskRewardRatio
+
+    AnalyzeRequest:
+      type: object
+      properties:
+        pair:
+          type: string
+        timeframe:
+          type: string
+      required:
+        - pair
+        - timeframe
+
+    AnalysisResult:
+      type: object
+      properties:
+        pair:
+          type: string
+        timeframe:
+          type: string
+        signal:
+          type: string
+          enum: [BUY, SELL, NEUTRAL]
+        entry:
+          type: number
+        stopLoss:
+          type: number
+        takeProfit:
+          type: number
+        confidenceScore:
+          type: integer
+        reasons:
+          type: array
+          items:
+            type: string
+        structureType:
+          type: string
+          enum: [BOS, CHOCH, NONE]
+        trend:
+          type: string
+          enum: [BULLISH, BEARISH, NEUTRAL]
+        hasOrderBlock:
+          type: boolean
+        hasSupportResistance:
+          type: boolean
+        riskRewardRatio:
+          type: number
+        supportZone:
+          type: object
+          properties:
+            high:
+              type: number
+            low:
+              type: number
+          required:
+            - high
+            - low
+        resistanceZone:
+          type: object
+          properties:
+            high:
+              type: number
+            low:
+              type: number
+          required:
+            - high
+            - low
+        orderBlockZone:
+          type: object
+          nullable: true
+          properties:
+            high:
+              type: number
+            low:
+              type: number
+            type:
+              type: string
+              enum: [BULLISH, BEARISH]
+          required:
+            - high
+            - low
+            - type
+      required:
+        - pair
+        - timeframe
+        - signal
+        - entry
+        - stopLoss
+        - takeProfit
+        - confidenceScore
+        - reasons
+        - structureType
+        - trend
+        - hasOrderBlock
+        - hasSupportResistance
+        - riskRewardRatio
+        - supportZone
+        - resistanceZone
+
+    DashboardSummary:
+      type: object
+      properties:
+        totalSignals:
+          type: integer
+        activeSignals:
+          type: integer
+        winRate:
+          type: number
+        avgConfidence:
+          type: number
+        buySignals:
+          type: integer
+        sellSignals:
+          type: integer
+        topPairs:
+          type: array
+          items:
+            type: object
+            properties:
+              pair:
+                type: string
+              count:
+                type: integer
+              winRate:
+                type: number
+            required:
+              - pair
+              - count
+              - winRate
+        recentActivity:
+          type: array
+          items:
+            $ref: "#/components/schemas/Signal"
+      required:
+        - totalSignals
+        - activeSignals
+        - winRate
+        - avgConfidence
+        - buySignals
+        - sellSignals
+        - topPairs
+        - recentActivity
+
+    ForexPair:
+      type: object
+      properties:
+        symbol:
+          type: string
+        base:
+          type: string
+        quote:
+          type: string
+        pip:
+          type: number
+        decimals:
+          type: integer
+      required:
+        - symbol
+        - base
+        - quote
+        - pip
+        - decimals
