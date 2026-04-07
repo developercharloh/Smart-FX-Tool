@@ -148,7 +148,7 @@ export default function Analyze() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground font-mono">Live Analyze</h1>
           <p className="text-muted-foreground mt-1">
-            Select an instrument and timeframe from the sidebar, then run analysis.
+            Select an instrument and timeframe from the menu ( ☰ ) on the right, then run analysis.
           </p>
         </div>
         <Button
@@ -168,7 +168,7 @@ export default function Analyze() {
         <div className="flex flex-col items-center justify-center py-24 bg-card/20 border border-dashed border-border rounded-xl">
           <Zap className="w-12 h-12 text-muted-foreground/30 mb-4" />
           <h3 className="text-lg font-bold font-mono text-muted-foreground">No instrument selected</h3>
-          <p className="text-sm text-muted-foreground mt-1">Pick an instrument and timeframe from the left sidebar to load the chart.</p>
+          <p className="text-sm text-muted-foreground mt-1">Open the menu ( ☰ ) on the right, pick an instrument and timeframe to load the chart.</p>
         </div>
       )}
 

@@ -3,10 +3,11 @@ import { ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import {
   Activity, Plus, Zap, LayoutDashboard,
-  Newspaper, Menu, X,
+  Newspaper, Menu, X, ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Sidebar } from "./Sidebar";
+import { useChart } from "@/contexts/ChartContext";
 
 const NAV_LINKS = [
   { href: "/",            label: "Dashboard",     icon: LayoutDashboard },
@@ -16,9 +17,37 @@ const NAV_LINKS = [
   { href: "/signals/new", label: "Manual Signal", icon: Plus },
 ];
 
+const PAIR_GROUPS = [
+  { label: "Commodities",        symbols: ["XAUUSD"] },
+  { label: "Forex Majors",       symbols: ["EURUSD","GBPUSD","USDJPY","AUDUSD","USDCAD","NZDUSD","USDCHF"] },
+  { label: "Forex Crosses",      symbols: ["GBPJPY","EURJPY","EURGBP","EURCHF","EURCAD","GBPCAD","AUDCAD","CADJPY"] },
+  { label: "Volatility Indices", symbols: ["R_10","R_25","R_50","R_75","R_100"] },
+  { label: "Volatility 1s",      symbols: ["1HZ10V","1HZ25V","1HZ50V","1HZ75V","1HZ100V"] },
+  { label: "Boom & Crash",       symbols: ["BOOM300","BOOM500","BOOM1000","CRASH300","CRASH500","CRASH1000"] },
+  { label: "Jump Indices",       symbols: ["JD10","JD25","JD50","JD75","JD100"] },
+];
+
+const TIMEFRAMES = [
+  { value: "M15", label: "M15 — 15 min" },
+  { value: "H1",  label: "H1 — 1 hour"  },
+  { value: "H4",  label: "H4 — 4 hours" },
+  { value: "D1",  label: "D1 — Daily"   },
+];
+
 function RightNav() {
   const [open, setOpen] = useState(false);
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
+  const { pair, timeframe, setPair, setTimeframe } = useChart();
+
+  function handlePairChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    setPair(e.target.value);
+    if (location !== "/analyze") navigate("/analyze");
+  }
+
+  function handleTimeframeChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    setTimeframe(e.target.value);
+    if (location !== "/analyze") navigate("/analyze");
+  }
 
   return (
     <div className="relative flex flex-col items-center w-12 border-l border-border bg-card shrink-0">
@@ -31,15 +60,17 @@ function RightNav() {
         {open ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
       </button>
 
-      {/* Dropdown panel — opens to the left */}
+      {/* Dropdown panel — slides in from the right */}
       {open && (
         <>
           <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
-          <div className="absolute top-0 right-12 z-40 w-52 bg-card border border-border/60 rounded-l-xl shadow-2xl overflow-hidden">
+          <div className="absolute top-0 right-12 z-40 w-60 bg-card border border-border/60 rounded-l-xl shadow-2xl overflow-hidden">
+
+            {/* Navigation links */}
             <div className="px-3 pt-3 pb-1">
               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Menu</p>
             </div>
-            <nav className="p-2">
+            <nav className="px-2 pb-2">
               {NAV_LINKS.map((link) => {
                 const active = location === link.href || (link.href !== "/" && location.startsWith(link.href));
                 return (
@@ -60,6 +91,62 @@ function RightNav() {
                 );
               })}
             </nav>
+
+            {/* Divider */}
+            <div className="mx-3 border-t border-border/50" />
+
+            {/* Chart Controls */}
+            <div className="px-3 pt-3 pb-1">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Chart Controls</p>
+            </div>
+            <div className="px-3 pb-4 space-y-3">
+              {/* Instrument */}
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-muted-foreground">Instrument</label>
+                <div className="relative">
+                  <select
+                    value={pair}
+                    onChange={handlePairChange}
+                    className="w-full appearance-none bg-background border border-border/60 rounded-md px-3 py-2 text-xs font-mono text-foreground focus:outline-none focus:border-primary/60 cursor-pointer pr-7"
+                  >
+                    <option value="" disabled>Select instrument</option>
+                    {PAIR_GROUPS.map((g) => (
+                      <optgroup key={g.label} label={g.label}>
+                        {g.symbols.map((s) => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+                </div>
+              </div>
+
+              {/* Timeframe */}
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-muted-foreground">Timeframe</label>
+                <div className="relative">
+                  <select
+                    value={timeframe}
+                    onChange={handleTimeframeChange}
+                    className="w-full appearance-none bg-background border border-border/60 rounded-md px-3 py-2 text-xs text-foreground focus:outline-none focus:border-primary/60 cursor-pointer pr-7"
+                  >
+                    {TIMEFRAMES.map((tf) => (
+                      <option key={tf.value} value={tf.value}>{tf.label}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground pointer-events-none" />
+                </div>
+              </div>
+
+              {/* Active pair display */}
+              {pair && (
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-[10px] text-muted-foreground">Active:</span>
+                  <span className="text-[10px] font-mono font-bold text-primary">{pair} / {timeframe}</span>
+                </div>
+              )}
+            </div>
           </div>
         </>
       )}
