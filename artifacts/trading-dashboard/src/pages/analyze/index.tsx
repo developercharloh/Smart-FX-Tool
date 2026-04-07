@@ -14,7 +14,6 @@ import { TrendBadge } from "@/components/shared/TrendBadge";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
-import TradingViewChart from "@/components/shared/TradingViewChart";
 import { LivePriceTicker } from "@/components/shared/LivePriceTicker";
 import { DerivChart } from "@/components/shared/DerivChart";
 
@@ -348,17 +347,10 @@ export default function Analyze() {
           <Separator className="opacity-30" />
           {/* Live price ticker — tick-by-tick feed from Deriv WebSocket */}
           <LivePriceTicker symbol={chartPair} />
-          {/* Synthetic indices → Deriv WebSocket chart with live candles + countdown */}
-          {/* Forex pairs → TradingView chart with OANDA feed */}
-          {isSynthetic(chartPair) ? (
-            <DerivChart symbol={chartPair} timeframe={chartTimeframe} height={580} />
-          ) : (
-            <TradingViewChart symbol={chartPair} timeframe={chartTimeframe} height={580} />
-          )}
+          {/* All instruments → Deriv WebSocket chart — no login required, all indicators built-in */}
+          <DerivChart symbol={chartPair} timeframe={chartTimeframe} height={620} />
           <p className="text-xs text-muted-foreground/50 text-right">
-            {isSynthetic(chartPair)
-              ? "Live candles via Deriv WebSocket. EMA 20/50 · RSI 14 · Countdown bar."
-              : "Chart powered by TradingView · OANDA real-time feed · BB · RSI · MACD."}
+            Live candles via Deriv WebSocket · EMA 20/50 · BB(20) · RSI 14 · MACD 12/26/9 · Countdown bar
           </p>
         </div>
       )}
