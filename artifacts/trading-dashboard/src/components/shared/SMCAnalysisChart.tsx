@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import {
   createChart,
   CandlestickSeries,
@@ -6,11 +6,13 @@ import {
   LineStyle,
   ColorType,
   CrosshairMode,
+  createSeriesMarkers,
   type IChartApi,
   type ISeriesApi,
   type SeriesMarker,
   type Time,
 } from "lightweight-charts";
+import { cn } from "@/lib/utils";
 
 // ── Local Indicators ──────────────────────────────────────────────────────────
 
@@ -69,20 +71,20 @@ class ZoneBoxPrimitive {
             if (yHigh === null || yLow === null) return;
             const top    = Math.min(yHigh, yLow);
             const bottom = Math.max(yHigh, yLow);
-            const h      = bottom - top;
-            // Filled rectangle
+            const h      = Math.max(bottom - top, 1);
             context.globalAlpha = 0.18;
             context.fillStyle   = self._fillColor;
             context.fillRect(0, top, mediaSize.width, h);
-            // Border lines
-            context.globalAlpha = 0.9;
+            context.globalAlpha = 0.85;
             context.strokeStyle = self._lineColor;
             context.lineWidth   = 1;
-            context.setLineDash([4, 3]);
-            context.beginPath();
-            context.moveTo(0, top); context.lineTo(mediaSize.width, top); context.stroke();
-            context.beginPath();
-            context.moveTo(0, bottom); context.lineTo(mediaSize.width, bottom); context.stroke();
+            context.setLineDash([5, 4]);
+            [[0, top], [0, bottom]].forEach(([x, y]) => {
+              context.beginPath();
+              context.moveTo(x, y);
+              context.lineTo(mediaSize.width, y);
+              context.stroke();
+            });
             context.setLineDash([]);
             context.globalAlpha = 1;
           });
@@ -91,6 +93,34 @@ class ZoneBoxPrimitive {
     }];
   }
 }
+
+// ── Drawing Toggles Config ────────────────────────────────────────────────────
+
+const TOGGLE_GROUPS = [
+  {
+    label: "Best Picks",
+    items: [
+      { key: "entryLevels",   label: "Entry / SL / TP",   color: "#10b981" },
+      { key: "orderBlock",    label: "Order Block",        color: "#f59e0b" },
+      { key: "fvg",           label: "Fair Value Gap",     color: "#8b5cf6" },
+      { key: "bos",           label: "BOS / CHoCH Level",  color: "#94a3b8" },
+      { key: "liquidity",     label: "Liquidity Sweep",    color: "#22d3ee" },
+    ],
+  },
+  {
+    label: "More Drawings",
+    items: [
+      { key: "supportResistance", label: "Support / Resistance", color: "#64748b" },
+      { key: "fibonacci",         label: "Fibonacci OTE",        color: "#eab308" },
+      { key: "ema",               label: "EMA 20 / 50",          color: "#06b6d4" },
+      { key: "bb",                label: "Bollinger Bands",      color: "#6366f1" },
+      { key: "equilibrium",       label: "EQ 50% Line",          color: "#475569" },
+      { key: "markers",           label: "Pattern Markers",      color: "#a855f7" },
+    ],
+  },
+];
+
+const DEFAULT_ON = new Set(["entryLevels", "orderBlock", "fvg", "bos", "liquidity", "markers"]);
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
@@ -102,6 +132,16 @@ interface Props {
 export default function SMCAnalysisChart({ result, height = 620 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef     = useRef<IChartApi | null>(null);
+  const [enabled, setEnabled] = useState<Set<string>>(() => new Set(DEFAULT_ON));
+  const [showMore, setShowMore] = useState(false);
+
+  function toggle(key: string) {
+    setEnabled(prev => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  }
 
   const build = useCallback(() => {
     if (!containerRef.current || !result?.chartCandles?.length) return;
@@ -110,7 +150,7 @@ export default function SMCAnalysisChart({ result, height = 620 }: Props) {
 
     const chart = createChart(containerRef.current, {
       width:  containerRef.current.clientWidth,
-      height: height - 44, // minus header
+      height: height - 96, // minus header + toggles
       layout: { background: { type: ColorType.Solid, color: "#0a0a14" }, textColor: "#9ca3af" },
       grid:   { vertLines: { color: "#111827" }, horzLines: { color: "#111827" } },
       crosshair: { mode: CrosshairMode.Normal },
@@ -123,7 +163,15 @@ export default function SMCAnalysisChart({ result, height = 620 }: Props) {
     const closes = raw.map(c => c.close);
     const times  = raw.map(c => c.time as Time);
 
-    // ── 1. Candlesticks ─────────────────────────────────────────────────────
+    // Helpers
+    function addBox(high: number, low: number, fill: string, line: string) {
+      (cs as any).attachPrimitive(new ZoneBoxPrimitive(high, low, fill, line));
+    }
+    function pl(price: number, color: string, title: string, style = LineStyle.Solid, width: 1 | 2 = 1) {
+      cs.createPriceLine({ price, color, lineWidth: width, lineStyle: style, axisLabelVisible: true, title });
+    }
+
+    // ── Candlesticks ─────────────────────────────────────────────────────────
     const cs = chart.addSeries(CandlestickSeries, {
       upColor: "#10b981", downColor: "#ef4444",
       borderUpColor: "#10b981", borderDownColor: "#ef4444",
@@ -131,115 +179,112 @@ export default function SMCAnalysisChart({ result, height = 620 }: Props) {
     });
     cs.setData(raw.map(c => ({ time: c.time as Time, open: c.open, high: c.high, low: c.low, close: c.close })));
 
-    // ── 2. EMA 20 ────────────────────────────────────────────────────────────
-    const ema20 = computeEMA(closes, 20);
-    const ema20S = chart.addSeries(LineSeries, { color: "#06b6d4", lineWidth: 1, title: "EMA 20", priceLineVisible: false, lastValueVisible: true });
-    ema20S.setData(ema20.map((v, i) => ({ time: times[i + 19], value: v })));
+    // ── EMA 20 / 50 ──────────────────────────────────────────────────────────
+    if (enabled.has("ema")) {
+      const ema20 = computeEMA(closes, 20);
+      const e20 = chart.addSeries(LineSeries, { color: "#06b6d4", lineWidth: 1, title: "EMA 20", priceLineVisible: false, lastValueVisible: true });
+      e20.setData(ema20.map((v, i) => ({ time: times[i + 19], value: v })));
 
-    // ── 3. EMA 50 ────────────────────────────────────────────────────────────
-    const ema50 = computeEMA(closes, 50);
-    const ema50S = chart.addSeries(LineSeries, { color: "#f59e0b", lineWidth: 1, title: "EMA 50", priceLineVisible: false, lastValueVisible: true });
-    ema50S.setData(ema50.map((v, i) => ({ time: times[i + 49], value: v })));
-
-    // ── 4. Bollinger Bands ───────────────────────────────────────────────────
-    const bb = computeBB(raw, 20);
-    const bbOpts = (title: string) => ({ color: "rgba(99,102,241,0.55)", lineWidth: 1 as const, lineStyle: LineStyle.Dashed, title, priceLineVisible: false, lastValueVisible: false });
-    const bbU = chart.addSeries(LineSeries, bbOpts("BB Upper"));
-    const bbM = chart.addSeries(LineSeries, { color: "rgba(99,102,241,0.3)", lineWidth: 1, lineStyle: LineStyle.SparseDotted, title: "BB Mid", priceLineVisible: false, lastValueVisible: false });
-    const bbL = chart.addSeries(LineSeries, bbOpts("BB Lower"));
-    bbU.setData(bb.map(d => ({ time: d.time as Time, value: d.upper })));
-    bbM.setData(bb.map(d => ({ time: d.time as Time, value: d.mid })));
-    bbL.setData(bb.map(d => ({ time: d.time as Time, value: d.lower })));
-
-    // ── 5. Zone Boxes (filled rectangles via primitive) ───────────────────────
-    function addBox(high: number, low: number, fill: string, line: string) {
-      const prim = new ZoneBoxPrimitive(high, low, fill, line);
-      (cs as any).attachPrimitive(prim);
+      const ema50 = computeEMA(closes, 50);
+      const e50 = chart.addSeries(LineSeries, { color: "#f59e0b", lineWidth: 1, title: "EMA 50", priceLineVisible: false, lastValueVisible: true });
+      e50.setData(ema50.map((v, i) => ({ time: times[i + 49], value: v })));
     }
+
+    // ── Bollinger Bands ───────────────────────────────────────────────────────
+    if (enabled.has("bb")) {
+      const bb = computeBB(raw, 20);
+      const bbOpts = (t: string) => ({ color: "rgba(99,102,241,0.55)", lineWidth: 1 as const, lineStyle: LineStyle.Dashed, title: t, priceLineVisible: false, lastValueVisible: false });
+      const bbU = chart.addSeries(LineSeries, bbOpts("BB Upper"));
+      const bbM = chart.addSeries(LineSeries, { color: "rgba(99,102,241,0.3)", lineWidth: 1, lineStyle: LineStyle.SparseDotted, title: "BB Mid", priceLineVisible: false, lastValueVisible: false });
+      const bbL = chart.addSeries(LineSeries, bbOpts("BB Lower"));
+      bbU.setData(bb.map(d => ({ time: d.time as Time, value: d.upper })));
+      bbM.setData(bb.map(d => ({ time: d.time as Time, value: d.mid })));
+      bbL.setData(bb.map(d => ({ time: d.time as Time, value: d.lower })));
+    }
+
+    // ── Zone Boxes + Price Lines ──────────────────────────────────────────────
 
     // Order Block
-    if (result.orderBlockZone) {
+    if (enabled.has("orderBlock") && result.orderBlockZone) {
       const c = result.orderBlockZone.type === "BULLISH" ? "#f59e0b" : "#ef4444";
       addBox(result.orderBlockZone.high, result.orderBlockZone.low, c, c);
+      pl(result.orderBlockZone.high, c, `OB ${result.orderBlockZone.type} High`);
+      pl(result.orderBlockZone.low,  c, `OB ${result.orderBlockZone.type} Low`, LineStyle.Dashed);
     }
-    // FVG
-    if (result.fvgZone) {
-      const c = result.fvgZone.type === "BULLISH" ? "#8b5cf6" : "#a855f7";
+
+    // Fair Value Gap
+    if (enabled.has("fvg") && result.fvgZone) {
+      const c = "#8b5cf6";
       addBox(result.fvgZone.high, result.fvgZone.low, c, c);
+      pl(result.fvgZone.high, c, `FVG ${result.fvgZone.type} High`);
+      pl(result.fvgZone.low,  c, `FVG ${result.fvgZone.type} Low`, LineStyle.Dashed);
     }
-    // Support
-    addBox(result.supportZone.high, result.supportZone.low, "#10b981", "#10b981");
-    // Resistance
-    addBox(result.resistanceZone.high, result.resistanceZone.low, "#ef4444", "#ef4444");
-    // OTE
-    if (result.isInOTE) {
+
+    // Support / Resistance
+    if (enabled.has("supportResistance")) {
+      addBox(result.supportZone.high,    result.supportZone.low,    "#10b981", "#10b981");
+      addBox(result.resistanceZone.high, result.resistanceZone.low, "#ef4444", "#ef4444");
+      pl(result.supportZone.high,    "#10b981", "Support Top",    LineStyle.Dashed);
+      pl(result.supportZone.low,     "#10b981", "Support Bottom", LineStyle.Dashed);
+      pl(result.resistanceZone.high, "#ef4444", "Resistance Top",    LineStyle.Dashed);
+      pl(result.resistanceZone.low,  "#ef4444", "Resistance Bottom", LineStyle.Dashed);
+    }
+
+    // Fibonacci OTE
+    if (enabled.has("fibonacci") && result.isInOTE) {
       addBox(result.oteFibHigh, result.oteFibLow, "#eab308", "#eab308");
-    }
-
-    // ── 6. Price Lines (labeled horizontal lines) ─────────────────────────────
-    function pl(price: number, color: string, title: string, style = LineStyle.Solid, width: 1 | 2 = 1) {
-      cs.createPriceLine({ price, color, lineWidth: width, lineStyle: style, axisLabelVisible: true, title });
-    }
-
-    // Entry / TP / SL
-    if (result.signal !== "NEUTRAL") {
-      const eColor = result.signal === "BUY" ? "#10b981" : "#ef4444";
-      pl(result.entry,      eColor,    `ENTRY ${result.signal}`,           LineStyle.Solid, 2);
-      pl(result.takeProfit, "#10b981", `TP  1:${result.riskRewardRatio}R`, LineStyle.Dashed);
-      pl(result.stopLoss,   "#ef4444", "SL  ATR-based",                    LineStyle.Dashed);
-    }
-
-    // OB labels
-    if (result.orderBlockZone) {
-      pl(result.orderBlockZone.high, "#f59e0b", `OB ${result.orderBlockZone.type} — High`);
-      pl(result.orderBlockZone.low,  "#f59e0b", `OB ${result.orderBlockZone.type} — Low`, LineStyle.Dashed);
-    }
-    // FVG labels
-    if (result.fvgZone) {
-      pl(result.fvgZone.high, "#8b5cf6", `FVG ${result.fvgZone.type} — High`);
-      pl(result.fvgZone.low,  "#8b5cf6", `FVG ${result.fvgZone.type} — Low`, LineStyle.Dashed);
-    }
-    // Fibonacci OTE labels
-    if (result.isInOTE) {
       pl(result.oteFibHigh, "#eab308", "Fib 0.618 OTE High");
       pl(result.oteFibLow,  "#eab308", "Fib 0.786 OTE Low", LineStyle.Dashed);
     }
-    // Swing High / Low (BOS/CHoCH levels)
-    pl(result.swingHighLevel, "rgba(239,68,68,0.7)",   result.structureType !== "NONE" ? `${result.structureType} — Swing High` : "Swing High", LineStyle.LargeDashed);
-    pl(result.swingLowLevel,  "rgba(16,185,129,0.7)",  result.structureType !== "NONE" ? `${result.structureType} — Swing Low`  : "Swing Low",  LineStyle.LargeDashed);
-    // Equilibrium (50% of range)
-    pl(result.equilibriumLevel, "rgba(255,255,255,0.25)", `EQ 50% — ${result.premiumDiscount}`, LineStyle.SparseDotted);
-    // Liquidity sweep
-    if (result.hasLiquiditySweep && result.liquidityLevel) {
-      pl(result.liquidityLevel, "#22d3ee", `${result.liquiditySweepType} Liquidity Sweep`, LineStyle.Dashed, 2);
-    }
-    // Support / Resistance labels
-    pl(result.supportZone.high,    "#10b981", "Support Zone Top",    LineStyle.Dashed);
-    pl(result.supportZone.low,     "#10b981", "Support Zone Bottom", LineStyle.Dashed);
-    pl(result.resistanceZone.high, "#ef4444", "Resistance Zone Top",    LineStyle.Dashed);
-    pl(result.resistanceZone.low,  "#ef4444", "Resistance Zone Bottom", LineStyle.Dashed);
 
-    // ── 7. Markers ────────────────────────────────────────────────────────────
-    const markers: SeriesMarker<Time>[] = [];
-    const lastT = times[times.length - 1];
-
-    if (result.signal !== "NEUTRAL") {
-      markers.push({ time: lastT, position: result.signal === "BUY" ? "belowBar" : "aboveBar", color: result.signal === "BUY" ? "#10b981" : "#ef4444", shape: result.signal === "BUY" ? "arrowUp" : "arrowDown", text: `${result.signal}  Entry`, size: 2 });
-    }
-    if (result.hasCandlePattern && result.candlePattern) {
-      const bull = result.candlePattern.startsWith("Bullish");
-      markers.push({ time: times[times.length - 2] ?? lastT, position: bull ? "belowBar" : "aboveBar", color: "#a855f7", shape: "circle", text: result.candlePattern, size: 1 });
-    }
-    if (result.hasLiquiditySweep) {
-      const sweepT = times[Math.max(0, times.length - 6)];
-      markers.push({ time: sweepT, position: result.liquiditySweepType === "SSL" ? "belowBar" : "aboveBar", color: "#22d3ee", shape: "circle", text: `${result.liquiditySweepType} Swept`, size: 1 });
-    }
-    if (result.hasDivergence) {
-      markers.push({ time: times[Math.max(0, times.length - 12)], position: "aboveBar", color: "#ec4899", shape: "circle", text: result.divergenceType?.replace(/_/g, " ") ?? "Divergence", size: 1 });
+    // BOS / CHoCH Swing Levels
+    if (enabled.has("bos")) {
+      pl(result.swingHighLevel, "rgba(239,68,68,0.75)",  result.structureType !== "NONE" ? `${result.structureType} Swing High` : "Swing High", LineStyle.LargeDashed);
+      pl(result.swingLowLevel,  "rgba(16,185,129,0.75)", result.structureType !== "NONE" ? `${result.structureType} Swing Low`  : "Swing Low",  LineStyle.LargeDashed);
     }
 
-    markers.sort((a, b) => (a.time as number) - (b.time as number));
-    if (markers.length) cs.setMarkers(markers);
+    // Liquidity Sweep
+    if (enabled.has("liquidity") && result.hasLiquiditySweep && result.liquidityLevel) {
+      pl(result.liquidityLevel, "#22d3ee", `${result.liquiditySweepType} Liquidity Swept`, LineStyle.Dashed, 2);
+    }
+
+    // EQ 50% line
+    if (enabled.has("equilibrium")) {
+      pl(result.equilibriumLevel, "rgba(255,255,255,0.2)", `EQ 50% — ${result.premiumDiscount}`, LineStyle.SparseDotted);
+    }
+
+    // Entry / SL / TP
+    if (enabled.has("entryLevels") && result.signal !== "NEUTRAL") {
+      const eColor = result.signal === "BUY" ? "#10b981" : "#ef4444";
+      pl(result.entry,      eColor,    `ENTRY ${result.signal}`,              LineStyle.Solid, 2);
+      pl(result.takeProfit, "#10b981", `TP  1:${result.riskRewardRatio}R`,    LineStyle.Dashed);
+      pl(result.stopLoss,   "#ef4444", "SL  ATR-based",                       LineStyle.Dashed);
+    }
+
+    // ── Markers ───────────────────────────────────────────────────────────────
+    if (enabled.has("markers")) {
+      const mkrs: SeriesMarker<Time>[] = [];
+      const lastT = times[times.length - 1];
+
+      if (result.signal !== "NEUTRAL") {
+        mkrs.push({ time: lastT, position: result.signal === "BUY" ? "belowBar" : "aboveBar", color: result.signal === "BUY" ? "#10b981" : "#ef4444", shape: result.signal === "BUY" ? "arrowUp" : "arrowDown", text: `${result.signal} Entry`, size: 2 });
+      }
+      if (result.hasCandlePattern && result.candlePattern) {
+        const bull = result.candlePattern.startsWith("Bullish");
+        mkrs.push({ time: times[times.length - 2] ?? lastT, position: bull ? "belowBar" : "aboveBar", color: "#a855f7", shape: "circle", text: result.candlePattern, size: 1 });
+      }
+      if (result.hasLiquiditySweep) {
+        mkrs.push({ time: times[Math.max(0, times.length - 6)], position: result.liquiditySweepType === "SSL" ? "belowBar" : "aboveBar", color: "#22d3ee", shape: "circle", text: `${result.liquiditySweepType} Sweep`, size: 1 });
+      }
+      if (result.hasDivergence) {
+        mkrs.push({ time: times[Math.max(0, times.length - 12)], position: "aboveBar", color: "#ec4899", shape: "circle", text: result.divergenceType?.replace(/_/g, " ") ?? "Divergence", size: 1 });
+      }
+
+      if (mkrs.length) {
+        mkrs.sort((a, b) => (a.time as number) - (b.time as number));
+        createSeriesMarkers(cs, mkrs);
+      }
+    }
 
     chart.timeScale().fitContent();
 
@@ -248,7 +293,7 @@ export default function SMCAnalysisChart({ result, height = 620 }: Props) {
     });
     ro.observe(containerRef.current);
     return () => ro.disconnect();
-  }, [result, height]);
+  }, [result, height, enabled]);
 
   useEffect(() => {
     const cleanup = build();
@@ -261,45 +306,76 @@ export default function SMCAnalysisChart({ result, height = 620 }: Props) {
 
   if (!result?.chartCandles?.length) return null;
 
-  const signal = result.signal;
-
   return (
     <div className="w-full rounded-xl overflow-hidden border border-border/40 bg-[#0a0a14]">
       {/* Header */}
-      <div className="px-4 py-2.5 border-b border-border/30 space-y-1.5">
+      <div className="px-4 pt-3 pb-2 border-b border-border/30 space-y-2.5">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs font-mono font-bold text-foreground">{result.pair} · {result.timeframe}</span>
             <span className="text-[10px] bg-primary/10 text-primary border border-primary/20 rounded px-1.5 py-0.5 font-semibold">SMC Analysis Chart</span>
-            <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${signal === "BUY" ? "bg-emerald-500/15 text-emerald-400" : signal === "SELL" ? "bg-rose-500/15 text-rose-400" : "bg-slate-500/15 text-slate-400"}`}>{signal}</span>
-          </div>
-          <span className="text-[10px] text-muted-foreground/60">All levels auto-drawn · Scroll to zoom</span>
-        </div>
-        {/* Legend */}
-        <div className="flex flex-wrap gap-x-4 gap-y-1 text-[9px] text-muted-foreground/70">
-          {[
-            { color: "#06b6d4", label: "EMA 20" },
-            { color: "#f59e0b", label: "EMA 50" },
-            { color: "rgba(99,102,241,0.7)", label: "Bollinger Bands" },
-            { color: "#f59e0b", label: "Order Block", fill: true },
-            { color: "#8b5cf6", label: "Fair Value Gap", fill: true },
-            { color: "#10b981", label: "Support Zone", fill: true },
-            { color: "#ef4444", label: "Resistance Zone", fill: true },
-            { color: "#eab308", label: "Fib OTE Zone", fill: true },
-            { color: "#22d3ee", label: "Liquidity Sweep" },
-            { color: "rgba(255,255,255,0.3)", label: "EQ 50%" },
-          ].map(({ color, label, fill }) => (
-            <span key={label} className="flex items-center gap-1">
-              {fill
-                ? <span className="w-3 h-3 rounded-sm inline-block opacity-60" style={{ background: color }} />
-                : <span className="w-4 h-0.5 inline-block" style={{ background: color }} />
-              }
-              {label}
+            <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded",
+              result.signal === "BUY"  ? "bg-emerald-500/15 text-emerald-400" :
+              result.signal === "SELL" ? "bg-rose-500/15 text-rose-400" :
+              "bg-slate-500/15 text-slate-400")}>
+              {result.signal}
             </span>
-          ))}
+          </div>
+          <span className="text-[10px] text-muted-foreground/50">Scroll / pinch to zoom</span>
+        </div>
+
+        {/* Toggle rows */}
+        <div className="space-y-1.5">
+          {/* Best Picks — always visible */}
+          <div className="flex flex-wrap gap-1.5 items-center">
+            <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 mr-1">Best Picks</span>
+            {TOGGLE_GROUPS[0].items.map(({ key, label, color }) => (
+              <button
+                key={key}
+                onClick={() => toggle(key)}
+                className={cn(
+                  "flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-all",
+                  enabled.has(key)
+                    ? "border-transparent text-[#0a0a14]"
+                    : "border-border/40 text-muted-foreground/50 bg-transparent"
+                )}
+                style={enabled.has(key) ? { background: color } : {}}
+              >
+                <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: enabled.has(key) ? "#0a0a14" : color }} />
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* More Drawings — expandable */}
+          <div className="flex flex-wrap gap-1.5 items-center">
+            <button
+              onClick={() => setShowMore(v => !v)}
+              className="text-[9px] font-bold uppercase tracking-widest text-primary/70 hover:text-primary mr-1 transition-colors"
+            >
+              {showMore ? "▲ Less" : "▼ More Drawings"}
+            </button>
+            {showMore && TOGGLE_GROUPS[1].items.map(({ key, label, color }) => (
+              <button
+                key={key}
+                onClick={() => toggle(key)}
+                className={cn(
+                  "flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-all",
+                  enabled.has(key)
+                    ? "border-transparent text-[#0a0a14]"
+                    : "border-border/40 text-muted-foreground/50 bg-transparent"
+                )}
+                style={enabled.has(key) ? { background: color } : {}}
+              >
+                <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: enabled.has(key) ? "#0a0a14" : color }} />
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
-      <div ref={containerRef} style={{ height: height - 44, width: "100%" }} />
+
+      <div ref={containerRef} style={{ height: height - 96, width: "100%" }} />
     </div>
   );
 }
