@@ -335,13 +335,26 @@ function getHTFBias(pair: string): "BULLISH" | "BEARISH" | "RANGING" {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function generateAnalysis(pair: string, timeframe: string) {
+  const GRAN_SECS: Record<string, number> = { M1: 60, M5: 300, M15: 900, M30: 1800, H1: 3600, H4: 14400, D1: 86400 };
+  const granSecs   = GRAN_SECS[timeframe] || 3600;
+  const nowSec     = Math.floor(Date.now() / 1000);
+  const alignedNow = Math.floor(nowSec / granSecs) * granSecs;
+
   const pairPrices: Record<string, number> = {
+    // Forex
     EURUSD: 1.0850, GBPUSD: 1.2700, USDJPY: 149.50,
     AUDUSD: 0.6520, USDCAD: 1.3650, NZDUSD: 0.6010, USDCHF: 0.8960,
     GBPJPY: 189.80, EURJPY: 162.30, EURGBP: 0.8530,
     EURCHF: 0.9620, EURCAD: 1.4760, GBPCAD: 1.7160, AUDCAD: 0.8920, CADJPY: 109.60,
     AUDNZD: 1.0850, AUDCHF: 0.5840, GBPCHF: 1.1390, NZDJPY: 89.90,
-    XAUUSD: 2340.0,
+    // Commodities
+    XAUUSD: 2340.0, XAGUSD: 29.50, XPTUSD: 980.0,
+    USOIL: 82.50, UKOIL: 86.20, NATGAS: 2.45, COPPER: 4.15,
+    // Crypto
+    BTCUSD: 68500, ETHUSD: 3450, XRPUSD: 0.52, LTCUSD: 88.0,
+    DOGEUSD: 0.148, DOTUSD: 7.80, BNBUSDT: 580.0, SOLUSDT: 155.0,
+    ADAUSDT: 0.45, AVAXUSDT: 38.0, MATICUSDT: 0.72, LINKUSDT: 14.50,
+    // Deriv Synthetics
     R_10: 10245.32, R_25: 8932.15, R_50: 6543.78, R_75: 12876.44, R_100: 22345.67,
     "1HZ10V": 3456.21, "1HZ25V": 7823.44, "1HZ50V": 5621.33, "1HZ75V": 9034.55, "1HZ100V": 18234.12,
     BOOM300: 7823.50, BOOM500: 6543.20, BOOM1000: 5234.80,
@@ -352,9 +365,11 @@ function generateAnalysis(pair: string, timeframe: string) {
   const basePrice  = pairPrices[pair] ?? 1.0;
   const isJpy      = pair.includes("JPY");
   const isGold     = pair === "XAUUSD";
+  const isCrypto   = ["BTC","ETH","XRP","LTC","DOGE","DOT","BNB","SOL","ADA","AVAX","MATIC","LINK"].some(s => pair.startsWith(s));
+  const isCommodity = ["XAGUSD","XPTUSD","USOIL","UKOIL","NATGAS","COPPER"].includes(pair);
   const isSynthetic = ["R_","1HZ","BOOM","CRASH","JD","STPIDX"].some(p => pair.startsWith(p));
-  const decimals   = isSynthetic ? 2 : isJpy || isGold ? 2 : 5;
-  const atrPct     = isSynthetic ? 0.008 : isGold ? 0.004 : isJpy ? 0.003 : 0.0025;
+  const decimals   = isSynthetic ? 2 : isCrypto && basePrice > 100 ? 2 : isCrypto ? 4 : isJpy || isGold || isCommodity ? 2 : 5;
+  const atrPct     = isSynthetic ? 0.008 : isCrypto ? 0.012 : isGold ? 0.004 : isCommodity ? 0.006 : isJpy ? 0.003 : 0.0025;
 
   // ── Generate candles & run indicators ──────────────────────────────────────
   const candles = generateCandles(basePrice, atrPct, 150);
@@ -579,6 +594,25 @@ function generateAnalysis(pair: string, timeframe: string) {
     dxySentiment,
     bullScore,
     bearScore,
+    // ── Chart Drawing Data ──
+    chartCandles: candles.map((c, i) => ({
+      time:  alignedNow - (candles.length - 1 - i) * granSecs,
+      open:  parseFloat(c.open.toFixed(decimals)),
+      high:  parseFloat(c.high.toFixed(decimals)),
+      low:   parseFloat(c.low.toFixed(decimals)),
+      close: parseFloat(c.close.toFixed(decimals)),
+    })),
+    swingHighLevel:  parseFloat(recentHigh.toFixed(decimals)),
+    swingLowLevel:   parseFloat(recentLow.toFixed(decimals)),
+    equilibriumLevel: parseFloat(midRange.toFixed(decimals)),
+    liquidityLevel: liqSweep.detected
+      ? parseFloat(
+          (liqSweep.type === "SSL"
+            ? Math.min(...candles.slice(-20, -5).map(c => c.low))
+            : Math.max(...candles.slice(-20, -5).map(c => c.high))
+          ).toFixed(decimals)
+        )
+      : null,
   };
 }
 

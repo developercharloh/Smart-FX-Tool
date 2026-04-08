@@ -13,6 +13,7 @@ import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import TradingViewChart from "@/components/shared/TradingViewChart";
 import SyntheticChart from "@/components/shared/SyntheticChart";
+import SMCAnalysisChart from "@/components/shared/SMCAnalysisChart";
 import { LivePriceTicker } from "@/components/shared/LivePriceTicker";
 import { useChart } from "@/contexts/ChartContext";
 
@@ -223,6 +224,20 @@ export default function Analyze() {
               ? "Live candles via Deriv (real-time)."
               : "Chart powered by TradingView — OANDA feed (real-time)."}
           </p>
+        </div>
+      )}
+
+      {/* ── SMC Analysis Chart (auto-drawn levels) ───────────────────────────── */}
+      {result && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            <Layers className="w-5 h-5 text-primary" />
+            <h2 className="text-lg font-bold font-mono tracking-tight">
+              SMC Analysis Chart <span className="text-muted-foreground font-normal text-sm">— auto-marked levels</span>
+            </h2>
+          </div>
+          <Separator className="opacity-30" />
+          <SMCAnalysisChart result={result} height={640} />
         </div>
       )}
 
