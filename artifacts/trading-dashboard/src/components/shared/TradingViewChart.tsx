@@ -19,7 +19,28 @@ const TIMEFRAME_MAP: Record<string, string> = {
 };
 
 const TV_SYMBOL_MAP: Record<string, string> = {
-  // Forex majors — OANDA feed for real-time streaming
+  // Cryptocurrency — Bitstamp (USD pairs) + Binance (USDT pairs)
+  BTCUSD:   "BITSTAMP:BTCUSD",
+  ETHUSD:   "BITSTAMP:ETHUSD",
+  XRPUSD:   "BITSTAMP:XRPUSD",
+  LTCUSD:   "BITSTAMP:LTCUSD",
+  DOGEUSD:  "BITSTAMP:DOGEUSD",
+  DOTUSD:   "COINBASE:DOTUSD",
+  BNBUSDT:  "BINANCE:BNBUSDT",
+  SOLUSDT:  "BINANCE:SOLUSDT",
+  ADAUSDT:  "BINANCE:ADAUSDT",
+  AVAXUSDT: "BINANCE:AVAXUSDT",
+  MATICUSDT:"BINANCE:MATICUSDT",
+  LINKUSDT: "BINANCE:LINKUSDT",
+  // Commodities
+  XAUUSD:   "OANDA:XAUUSD",
+  XAGUSD:   "OANDA:XAGUSD",
+  XPTUSD:   "TVC:PLATINUM",
+  USOIL:    "TVC:USOIL",
+  UKOIL:    "TVC:UKOIL",
+  NATGAS:   "TVC:NATGAS",
+  COPPER:   "TVC:COPPER",
+  // Forex majors — OANDA feed
   EURUSD: "OANDA:EURUSD",
   GBPUSD: "OANDA:GBPUSD",
   USDJPY: "OANDA:USDJPY",
@@ -27,8 +48,6 @@ const TV_SYMBOL_MAP: Record<string, string> = {
   USDCAD: "OANDA:USDCAD",
   NZDUSD: "OANDA:NZDUSD",
   USDCHF: "OANDA:USDCHF",
-  // Commodities
-  XAUUSD: "OANDA:XAUUSD",
   // Forex crosses
   GBPJPY: "OANDA:GBPJPY",
   EURJPY: "OANDA:EURJPY",

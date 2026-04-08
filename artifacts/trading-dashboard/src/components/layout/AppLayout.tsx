@@ -18,7 +18,8 @@ const NAV_LINKS = [
 ];
 
 const PAIR_GROUPS = [
-  { label: "Commodities",        symbols: ["XAUUSD"] },
+  { label: "Cryptocurrency",     symbols: ["BTCUSD","ETHUSD","XRPUSD","BNBUSDT","SOLUSDT","ADAUSDT","DOTUSD","AVAXUSDT","DOGEUSD","MATICUSDT","LINKUSDT","LTCUSD"] },
+  { label: "Commodities",        symbols: ["XAUUSD","XAGUSD","XPTUSD","USOIL","UKOIL","NATGAS","COPPER"] },
   { label: "Forex Majors",       symbols: ["EURUSD","GBPUSD","USDJPY","AUDUSD","USDCAD","NZDUSD","USDCHF"] },
   { label: "Forex Crosses",      symbols: ["GBPJPY","EURJPY","EURGBP","EURCHF","EURCAD","GBPCAD","AUDCAD","CADJPY"] },
   { label: "Volatility Indices", symbols: ["R_10","R_25","R_50","R_75","R_100"] },

@@ -24,7 +24,28 @@ const SYNTHETIC_SYMBOLS = new Set([
 ]);
 
 const PAIR_LABELS: Record<string, string> = {
-  XAUUSD: "Gold vs US Dollar",
+  // Crypto
+  BTCUSD:    "Bitcoin / US Dollar",
+  ETHUSD:    "Ethereum / US Dollar",
+  XRPUSD:    "Ripple / US Dollar",
+  LTCUSD:    "Litecoin / US Dollar",
+  DOGEUSD:   "Dogecoin / US Dollar",
+  DOTUSD:    "Polkadot / US Dollar",
+  BNBUSDT:   "BNB / Tether",
+  SOLUSDT:   "Solana / Tether",
+  ADAUSDT:   "Cardano / Tether",
+  AVAXUSDT:  "Avalanche / Tether",
+  MATICUSDT: "Polygon / Tether",
+  LINKUSDT:  "Chainlink / Tether",
+  // Commodities
+  XAUUSD: "Gold / US Dollar",
+  XAGUSD: "Silver / US Dollar",
+  XPTUSD: "Platinum / US Dollar",
+  USOIL:  "WTI Crude Oil",
+  UKOIL:  "Brent Crude Oil",
+  NATGAS: "Natural Gas",
+  COPPER: "Copper",
+  // Deriv Synthetics
   R_10: "Volatility 10 Index",   R_25: "Volatility 25 Index",
   R_50: "Volatility 50 Index",   R_75: "Volatility 75 Index",   R_100: "Volatility 100 Index",
   "1HZ10V": "Volatility 10 (1s) Index","1HZ25V": "Volatility 25 (1s) Index",
@@ -103,7 +124,15 @@ export default function Analyze() {
 
   function fmtPrice(v: number) {
     if (!v) return "—";
-    if (isSynthetic || pair === "XAUUSD" || pair?.includes("JPY")) return v.toFixed(2);
+    if (isSynthetic) return v.toFixed(2);
+    // Crypto — large prices 2dp, small prices 4dp
+    const CRYPTO = ["BTCUSD","ETHUSD","BNBUSDT","SOLUSDT","AVAXUSDT","LTCUSD","DOGEUSD","MATICUSDT","ADAUSDT","LINKUSDT","DOTUSD","XRPUSD"];
+    if (CRYPTO.includes(pair ?? "")) return v >= 100 ? v.toFixed(2) : v.toFixed(4);
+    // Commodities
+    if (["XAUUSD","XAGUSD","XPTUSD","USOIL","UKOIL"].includes(pair ?? "")) return v.toFixed(2);
+    if (["NATGAS","COPPER"].includes(pair ?? "")) return v.toFixed(3);
+    // JPY pairs
+    if (pair?.includes("JPY")) return v.toFixed(2);
     return v.toFixed(5);
   }
 
