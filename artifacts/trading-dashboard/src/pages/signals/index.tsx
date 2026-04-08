@@ -28,9 +28,9 @@ export default function SignalsList() {
           <p className="text-muted-foreground mt-1">Browse and filter trading opportunities.</p>
         </div>
         <div className="flex items-center gap-3">
-          <Link href="/signals/new">
+          <Link href="/analyze">
             <Button className="gap-2">
-              <Activity className="w-4 h-4" /> Manual Signal
+              <Activity className="w-4 h-4" /> Run Analysis
             </Button>
           </Link>
         </div>

@@ -9,7 +9,6 @@ import { ChartProvider } from "@/contexts/ChartContext";
 import Dashboard from "@/pages/dashboard";
 import SignalsList from "@/pages/signals/index";
 import SignalDetail from "@/pages/signals/detail";
-import NewSignal from "@/pages/signals/new";
 import Analyze from "@/pages/analyze/index";
 import MarketNews from "@/pages/news/index";
 
@@ -28,7 +27,6 @@ function Router() {
       <Switch>
         <Route path="/" component={Dashboard} />
         <Route path="/signals" component={SignalsList} />
-        <Route path="/signals/new" component={NewSignal} />
         <Route path="/signals/:id" component={SignalDetail} />
         <Route path="/analyze" component={Analyze} />
         <Route path="/news" component={MarketNews} />

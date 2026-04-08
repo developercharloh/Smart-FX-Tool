@@ -118,6 +118,21 @@ function SignalDot({ active, color }: { active: boolean; color: string }) {
   return <span className={cn("inline-block w-2 h-2 rounded-full mr-1.5", active ? color : "bg-muted")} />;
 }
 
+function VolatilityBadge({ entry, stopLoss }: { entry: number; stopLoss: number }) {
+  const atr = Math.abs(entry - stopLoss) / 1.2;
+  const pct = entry > 0 ? (atr / entry) * 100 : 0;
+  const level = pct > 0.5 ? "HIGH" : pct > 0.15 ? "MEDIUM" : "LOW";
+  const styles =
+    level === "HIGH"   ? "bg-rose-500/10 text-rose-400 border-rose-500/25" :
+    level === "MEDIUM" ? "bg-amber-500/10 text-amber-400 border-amber-500/25" :
+                         "bg-sky-500/10 text-sky-400 border-sky-500/25";
+  return (
+    <span className={cn("flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider", styles)}>
+      <Waves className="w-3 h-3" /> {level} VOL
+    </span>
+  );
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 export default function Analyze() {
@@ -286,6 +301,7 @@ export default function Analyze() {
                     {result.timeframe} LIVE
                   </Badge>
                   <SessionBadge name={result.session} quality={result.sessionQuality} />
+                  <VolatilityBadge entry={result.entry} stopLoss={result.stopLoss} />
                 </div>
                 <div className="flex items-center gap-3">
                   <span className={cn(
