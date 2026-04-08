@@ -41,12 +41,15 @@ function RightNav() {
 
   function handlePairChange(e: React.ChangeEvent<HTMLSelectElement>) {
     setPair(e.target.value);
-    if (location !== "/analyze") navigate("/analyze");
   }
 
   function handleTimeframeChange(e: React.ChangeEvent<HTMLSelectElement>) {
     setTimeframe(e.target.value);
-    if (location !== "/analyze") navigate("/analyze");
+  }
+
+  function handleLoadChart() {
+    navigate("/analyze");
+    setOpen(false);
   }
 
   return (
@@ -139,13 +142,14 @@ function RightNav() {
                 </div>
               </div>
 
-              {/* Active pair display */}
-              {pair && (
-                <div className="flex items-center justify-between pt-1">
-                  <span className="text-[10px] text-muted-foreground">Active:</span>
-                  <span className="text-[10px] font-mono font-bold text-primary">{pair} / {timeframe}</span>
-                </div>
-              )}
+              {/* Load Chart button */}
+              <button
+                onClick={handleLoadChart}
+                disabled={!pair}
+                className="w-full mt-1 py-2 rounded-md text-xs font-bold bg-primary text-primary-foreground disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
+              >
+                {pair ? `Load ${pair} / ${timeframe}` : "Select instrument first"}
+              </button>
             </div>
           </div>
         </>
