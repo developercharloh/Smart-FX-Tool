@@ -325,53 +325,81 @@ export default function SMCAnalysisChart({ result, height = 620 }: Props) {
         </div>
 
         {/* Toggle rows */}
-        <div className="space-y-1.5">
-          {/* Best Picks — always visible */}
-          <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 mr-1">Best Picks</span>
-            {TOGGLE_GROUPS[0].items.map(({ key, label, color }) => (
-              <button
-                key={key}
-                onClick={() => toggle(key)}
-                className={cn(
-                  "flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-all",
-                  enabled.has(key)
-                    ? "border-transparent text-[#0a0a14]"
-                    : "border-border/40 text-muted-foreground/50 bg-transparent"
-                )}
-                style={enabled.has(key) ? { background: color } : {}}
-              >
-                <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: enabled.has(key) ? "#0a0a14" : color }} />
-                {label}
-              </button>
-            ))}
+        <div className="space-y-2">
+          {/* Best Picks label */}
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-white/40">Best Picks</span>
+            <div className="flex-1 h-px bg-white/10" />
           </div>
 
-          {/* More Drawings — expandable */}
-          <div className="flex flex-wrap gap-1.5 items-center">
-            <button
-              onClick={() => setShowMore(v => !v)}
-              className="text-[9px] font-bold uppercase tracking-widest text-primary/70 hover:text-primary mr-1 transition-colors"
-            >
-              {showMore ? "▲ Less" : "▼ More Drawings"}
-            </button>
-            {showMore && TOGGLE_GROUPS[1].items.map(({ key, label, color }) => (
-              <button
-                key={key}
-                onClick={() => toggle(key)}
-                className={cn(
-                  "flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-all",
-                  enabled.has(key)
-                    ? "border-transparent text-[#0a0a14]"
-                    : "border-border/40 text-muted-foreground/50 bg-transparent"
-                )}
-                style={enabled.has(key) ? { background: color } : {}}
-              >
-                <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: enabled.has(key) ? "#0a0a14" : color }} />
-                {label}
-              </button>
-            ))}
+          {/* Best Picks toggles */}
+          <div className="flex flex-wrap gap-2">
+            {TOGGLE_GROUPS[0].items.map(({ key, label, color }) => {
+              const on = enabled.has(key);
+              return (
+                <button
+                  key={key}
+                  onClick={() => toggle(key)}
+                  className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] font-semibold transition-all active:scale-95"
+                  style={{
+                    background: on ? color : "rgba(255,255,255,0.07)",
+                    color: on ? "#000" : "#fff",
+                    border: on ? `1.5px solid ${color}` : `1.5px solid rgba(255,255,255,0.18)`,
+                    boxShadow: on ? `0 0 10px ${color}55` : "none",
+                  }}
+                >
+                  {/* color swatch always visible */}
+                  <span
+                    className="w-2.5 h-2.5 rounded-full shrink-0 border border-black/20"
+                    style={{ background: color }}
+                  />
+                  {label}
+                  {/* checkmark when ON */}
+                  {on && <span className="text-[10px] font-black ml-0.5">✓</span>}
+                </button>
+              );
+            })}
           </div>
+
+          {/* More Drawings expand button */}
+          <button
+            onClick={() => setShowMore(v => !v)}
+            className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-white/60 hover:text-white transition-colors"
+          >
+            <span
+              className="w-4 h-4 rounded flex items-center justify-center text-[10px] border border-white/20 bg-white/5"
+            >{showMore ? "▲" : "▼"}</span>
+            {showMore ? "Hide extra drawings" : "Add more drawings"}
+          </button>
+
+          {/* More Drawings toggles */}
+          {showMore && (
+            <div className="flex flex-wrap gap-2">
+              {TOGGLE_GROUPS[1].items.map(({ key, label, color }) => {
+                const on = enabled.has(key);
+                return (
+                  <button
+                    key={key}
+                    onClick={() => toggle(key)}
+                    className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] font-semibold transition-all active:scale-95"
+                    style={{
+                      background: on ? color : "rgba(255,255,255,0.07)",
+                      color: on ? "#000" : "#fff",
+                      border: on ? `1.5px solid ${color}` : `1.5px solid rgba(255,255,255,0.18)`,
+                      boxShadow: on ? `0 0 10px ${color}55` : "none",
+                    }}
+                  >
+                    <span
+                      className="w-2.5 h-2.5 rounded-full shrink-0 border border-black/20"
+                      style={{ background: color }}
+                    />
+                    {label}
+                    {on && <span className="text-[10px] font-black ml-0.5">✓</span>}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 
