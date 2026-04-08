@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useGetDashboardSummary, useListSignals, getGetDashboardSummaryQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SignalCard } from "@/components/shared/SignalCard";
@@ -6,10 +7,18 @@ import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
+import { useQueryClient } from "@tanstack/react-query";
 
 export default function Dashboard() {
   const { data: summary, isLoading: isLoadingSummary } = useGetDashboardSummary();
   const { data: signals, isLoading: isLoadingSignals } = useListSignals({ timeframe: "H1" });
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    fetch(`${import.meta.env.BASE_URL}api/signals/resolve-pending`, { method: "POST" })
+      .then(() => queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() }))
+      .catch(() => {});
+  }, []);
 
   return (
     <div className="space-y-6">

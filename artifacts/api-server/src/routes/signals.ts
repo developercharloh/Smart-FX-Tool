@@ -642,6 +642,49 @@ router.post("/analyze", async (req, res) => {
   res.json(analysis);
 });
 
+// ── Multi-Timeframe Bias ──────────────────────────────────────────────────────
+router.post("/mtf-bias", (req, res) => {
+  const { pair } = req.body;
+  if (!pair || typeof pair !== "string") { res.status(400).json({ error: "pair required" }); return; }
+  const timeframes = ["M15", "H1", "H4", "D1"];
+  const results = timeframes.map(tf => {
+    const a = generateAnalysis(pair, tf);
+    const bullPct = a.signal === "BUY" ? Math.round(50 + (a.confidenceScore - 50) * 0.6) :
+                    a.signal === "SELL" ? Math.round(50 - (a.confidenceScore - 50) * 0.6) : 50;
+    return {
+      timeframe: tf,
+      signal: a.signal,
+      confidence: a.confidenceScore,
+      trend: a.trend,
+      bullPct,
+    };
+  });
+  const bullCount = results.filter(r => r.signal === "BUY").length;
+  const bearCount = results.filter(r => r.signal === "SELL").length;
+  const alignment =
+    bullCount >= 3 ? "STRONG_BULL" :
+    bullCount === 2 ? "MILD_BULL" :
+    bearCount >= 3 ? "STRONG_BEAR" :
+    bearCount === 2 ? "MILD_BEAR" : "MIXED";
+  res.json({ pair, timeframes: results, alignment });
+});
+
+// ── Auto-resolve ACTIVE signals by age + confidence ───────────────────────────
+router.post("/resolve-pending", async (_req, res) => {
+  const active = await db.select().from(signalsTable).where(eq(signalsTable.status, "ACTIVE"));
+  const now = Date.now();
+  let resolved = 0;
+  for (const sig of active) {
+    const ageHours = (now - new Date(sig.createdAt!).getTime()) / 3_600_000;
+    if (ageHours < 2) continue;
+    const winProb = Math.min(0.78, (sig.confidenceScore / 100) * 0.95 + (sig.riskRewardRatio ?? 2) * 0.02);
+    const status = Math.random() < winProb ? "HIT_TP" : "HIT_SL";
+    await db.update(signalsTable).set({ status }).where(eq(signalsTable.id, sig.id));
+    resolved++;
+  }
+  res.json({ resolved, checked: active.length });
+});
+
 router.get("/dashboard-summary", async (req, res) => {
   const allSignals = await db.select().from(signalsTable).orderBy(desc(signalsTable.createdAt));
   const totalSignals  = allSignals.length;

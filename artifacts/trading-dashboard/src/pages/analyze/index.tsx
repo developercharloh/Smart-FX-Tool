@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useAnalyzeSignal, useCreateSignal } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,10 @@ import TradingViewChart from "@/components/shared/TradingViewChart";
 import SyntheticChart from "@/components/shared/SyntheticChart";
 import SMCAnalysisChart from "@/components/shared/SMCAnalysisChart";
 import { LivePriceTicker } from "@/components/shared/LivePriceTicker";
+import { MTFConfluence } from "@/components/shared/MTFConfluence";
+import { PositionSizeCalc } from "@/components/shared/PositionSizeCalc";
+import { HistoryBar } from "@/components/shared/HistoryBar";
+import { useAnalysisHistory } from "@/hooks/useAnalysisHistory";
 import { useChart } from "@/contexts/ChartContext";
 
 const SYNTHETIC_SYMBOLS = new Set([
@@ -120,6 +125,8 @@ export default function Analyze() {
   const analyzeMutation = useAnalyzeSignal();
   const createMutation  = useCreateSignal();
   const { toast }       = useToast();
+  const { history, push: pushHistory, clear: clearHistory } = useAnalysisHistory();
+  const [historyResult, setHistoryResult] = useState<any>(null);
 
   const isSynthetic = pair ? SYNTHETIC_SYMBOLS.has(pair) : false;
 
@@ -142,13 +149,16 @@ export default function Analyze() {
       toast({ variant: "destructive", title: "No instrument selected", description: "Use the sidebar to choose an instrument first." });
       return;
     }
+    setHistoryResult(null);
     analyzeMutation.mutate({ data: { pair, timeframe } }, {
-      onError: () => toast({ variant: "destructive", title: "Analysis Failed", description: "Could not complete analysis. Please try again." }),
+      onSuccess: (data) => pushHistory(data),
+      onError:   () => toast({ variant: "destructive", title: "Analysis Failed", description: "Could not complete analysis. Please try again." }),
     });
   }
 
+  const result = historyResult ?? analyzeMutation.data;
+
   function handleSave() {
-    const result = analyzeMutation.data;
     if (!result) return;
     if (result.signal === "NEUTRAL") {
       toast({ variant: "destructive", title: "Cannot save neutral signal", description: "Only BUY or SELL signals can be saved." });
@@ -168,8 +178,6 @@ export default function Analyze() {
       onError:   () => toast({ variant: "destructive", title: "Error", description: "Failed to save signal." }),
     });
   }
-
-  const result = analyzeMutation.data;
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -192,6 +200,13 @@ export default function Analyze() {
             : <><Zap className="w-4 h-4" /> Run Analysis</>}
         </Button>
       </div>
+
+      {/* ── Analysis History ─────────────────────────────────────────────────── */}
+      <HistoryBar
+        history={history}
+        onReload={(r) => setHistoryResult(r)}
+        onClear={clearHistory}
+      />
 
       {/* No pair selected */}
       {!pair && (
@@ -227,6 +242,9 @@ export default function Analyze() {
         </div>
       )}
 
+      {/* ── Multi-Timeframe Confluence ────────────────────────────────────────── */}
+      {pair && <MTFConfluence pair={pair} />}
+
       {/* ── SMC Analysis Chart (auto-drawn levels) ───────────────────────────── */}
       {result && (
         <div className="space-y-3">
@@ -239,6 +257,17 @@ export default function Analyze() {
           <Separator className="opacity-30" />
           <SMCAnalysisChart result={result} height={640} />
         </div>
+      )}
+
+      {/* ── Position Size Calculator ──────────────────────────────────────────── */}
+      {result && result.signal !== "NEUTRAL" && (
+        <PositionSizeCalc
+          pair={result.pair}
+          entry={result.entry}
+          stopLoss={result.stopLoss}
+          takeProfit={result.takeProfit}
+          signal={result.signal}
+        />
       )}
 
       {/* ── Analysis Result ───────────────────────────────────────────────────── */}
