@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
   BarChart2, LayoutDashboard, Activity, Zap, Newspaper, Plus,
-  ChevronDown, LogOut, Key,
+  ChevronDown, LogOut, Key, Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useChart } from "@/contexts/ChartContext";
@@ -14,6 +14,7 @@ const NAV_LINKS = [
   { href: "/analyze",     label: "Live Analyze",  icon: Zap },
   { href: "/news",        label: "Market News",   icon: Newspaper },
   { href: "/signals/new", label: "Manual Signal", icon: Plus },
+  { href: "/settings",    label: "Settings",      icon: Settings },
 ];
 
 const PAIR_GROUPS = [

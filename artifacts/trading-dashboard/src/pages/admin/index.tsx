@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import { format } from "date-fns";
 import {
   Shield, Key, Plus, Trash2, Ban, CheckCircle2, Copy, Check,
-  Loader2, Lock, RefreshCw, LogOut,
+  Loader2, Lock, RefreshCw, LogOut, BarChart2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -219,6 +219,15 @@ export default function AdminPanel() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {import.meta.env.DEV && (
+            <a
+              href="/signals"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-primary/10 border border-primary/30 text-sm text-primary font-semibold hover:bg-primary/20 transition-colors"
+            >
+              <BarChart2 className="w-3.5 h-3.5" />
+              View Dashboard
+            </a>
+          )}
           <button
             onClick={loadKeys}
             disabled={loading}

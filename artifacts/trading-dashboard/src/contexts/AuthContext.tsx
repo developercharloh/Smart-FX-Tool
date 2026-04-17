@@ -58,8 +58,10 @@ function cacheNeedsRevalidation(c: CachedAuth): boolean {
 
 // ── Derive initial state from cache so there is zero loading delay ──────────
 
-const cached = readCache();
-const initialAuthenticated = !!cached && !cacheIsExpired(cached);
+// In dev mode (Replit preview) the admin bypasses auth entirely
+const DEV_MODE = import.meta.env.DEV;
+const cached = DEV_MODE ? null : readCache();
+const initialAuthenticated = DEV_MODE || (!!cached && !cacheIsExpired(cached));
 
 // ── Context ─────────────────────────────────────────────────────────────────
 
@@ -68,7 +70,7 @@ const AuthContext = createContext<AuthState | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [authenticated, setAuthenticated] = useState(initialAuthenticated);
   const [key,       setKey]       = useState<string | null>(cached?.key       ?? null);
-  const [plan,      setPlan]      = useState<Plan | null>(cached?.plan       ?? null);
+  const [plan,      setPlan]      = useState<Plan | null>(DEV_MODE ? "lifetime" : (cached?.plan ?? null));
   const [expiresAt, setExpiresAt] = useState<string | null>(cached?.expiresAt ?? null);
   const [label,     setLabel]     = useState<string | null>(cached?.label     ?? null);
   const [loading,   setLoading]   = useState(false);

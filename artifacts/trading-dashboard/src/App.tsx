@@ -14,6 +14,7 @@ import SignalDetail from "@/pages/signals/detail";
 import Analyze from "@/pages/analyze/index";
 import MarketNews from "@/pages/news/index";
 import AdminPanel from "@/pages/admin/index";
+import SettingsPage from "@/pages/settings/index";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -47,6 +48,7 @@ function AuthenticatedApp() {
         <Route path="/signals/:id" component={SignalDetail} />
         <Route path="/analyze" component={Analyze} />
         <Route path="/news" component={MarketNews} />
+        <Route path="/settings" component={SettingsPage} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>
@@ -57,8 +59,9 @@ function Router() {
   return (
     <Switch>
       <Route path="/xk-manage" component={AdminPanel} />
-      {/* In dev (Replit preview), land on admin panel by default */}
-      <Route component={import.meta.env.DEV ? AdminPanel : AuthenticatedApp} />
+      {/* In dev mode: root lands on admin, all other paths open the full dashboard */}
+      {import.meta.env.DEV && <Route path="/" component={AdminPanel} />}
+      <Route component={AuthenticatedApp} />
     </Switch>
   );
 }
