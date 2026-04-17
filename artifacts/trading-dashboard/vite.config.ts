@@ -37,6 +37,29 @@ export default defineConfig({
         ]
       : []),
   ],
+  optimizeDeps: {
+    include: [
+      "react",
+      "react-dom",
+      "react-dom/client",
+      "wouter",
+      "@tanstack/react-query",
+      "lucide-react",
+      "recharts",
+      "clsx",
+      "tailwind-merge",
+      "class-variance-authority",
+      "@radix-ui/react-tooltip",
+      "@radix-ui/react-dialog",
+      "@radix-ui/react-dropdown-menu",
+      "@radix-ui/react-select",
+      "@radix-ui/react-tabs",
+      "@radix-ui/react-slot",
+      "@radix-ui/react-label",
+      "@radix-ui/react-separator",
+      "@radix-ui/react-toast",
+    ],
+  },
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),
@@ -53,6 +76,18 @@ export default defineConfig({
     port,
     host: "0.0.0.0",
     allowedHosts: true,
+    warmup: {
+      clientFiles: [
+        "./src/main.tsx",
+        "./src/App.tsx",
+        "./src/contexts/AuthContext.tsx",
+        "./src/components/AccessGate.tsx",
+        "./src/components/layout/AppLayout.tsx",
+        "./src/components/layout/Sidebar.tsx",
+        "./src/pages/dashboard.tsx",
+        "./src/pages/analyze/index.tsx",
+      ],
+    },
     fs: {
       strict: true,
       deny: ["**/.*"],
