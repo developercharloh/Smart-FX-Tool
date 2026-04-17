@@ -10,6 +10,7 @@ export const accessKeysTable = pgTable("access_keys", {
   expiresAt: timestamp("expires_at"),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  lastUsedAt: timestamp("last_used_at"),
 });
 
 export type AccessKey = typeof accessKeysTable.$inferSelect;

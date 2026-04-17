@@ -32,6 +32,11 @@ router.post("/validate", async (req, res) => {
     return;
   }
 
+  await db
+    .update(accessKeysTable)
+    .set({ lastUsedAt: new Date() })
+    .where(eq(accessKeysTable.id, record.id));
+
   res.json({
     valid: true,
     plan: record.plan,

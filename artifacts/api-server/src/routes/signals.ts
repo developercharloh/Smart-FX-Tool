@@ -617,6 +617,42 @@ function generateAnalysis(pair: string, timeframe: string) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// NOTIFICATIONS  (Telegram + Webhook)
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function sendNotifications(signal: any) {
+  const emoji = signal.signal === "BUY" ? "🟢" : "🔴";
+  const message = [
+    `${emoji} *SmartFX Signal*`,
+    `*${signal.pair}* ${signal.signal} @ \`${signal.entry}\``,
+    `TP: \`${signal.takeProfit}\` | SL: \`${signal.stopLoss}\``,
+    `R:R 1:${Number(signal.riskRewardRatio).toFixed(1)} | Confidence: ${signal.confidenceScore}%`,
+    `Timeframe: ${signal.timeframe}`,
+  ].join("\n");
+
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId   = process.env.TELEGRAM_CHAT_ID;
+  if (botToken && chatId) {
+    await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: "Markdown" }),
+      signal: AbortSignal.timeout(6000),
+    }).catch(() => {});
+  }
+
+  const webhookUrl = process.env.SIGNAL_WEBHOOK_URL;
+  if (webhookUrl) {
+    await fetch(webhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ event: "new_signal", signal }),
+      signal: AbortSignal.timeout(6000),
+    }).catch(() => {});
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // ROUTES  (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -711,11 +747,27 @@ router.get("/dashboard-summary", async (req, res) => {
   res.json({ totalSignals, activeSignals, winRate, avgConfidence, buySignals, sellSignals, topPairs, recentActivity: allSignals.slice(0, 5) });
 });
 
+router.patch("/:id/status", async (req, res) => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  const { status } = req.body;
+  const valid = ["ACTIVE", "HIT_TP", "HIT_SL", "EXPIRED"];
+  if (!valid.includes(status)) { res.status(400).json({ error: "Invalid status" }); return; }
+  const [updated] = await db
+    .update(signalsTable)
+    .set({ status })
+    .where(eq(signalsTable.id, id))
+    .returning();
+  if (!updated) { res.status(404).json({ error: "Signal not found" }); return; }
+  res.json(updated);
+});
+
 router.post("/", async (req, res) => {
   const parsed = CreateSignalBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Invalid request body" }); return; }
   const [created] = await db.insert(signalsTable).values(parsed.data as any).returning();
   res.status(201).json(created);
+  sendNotifications(created).catch(() => {});
 });
 
 router.get("/:id", async (req, res) => {

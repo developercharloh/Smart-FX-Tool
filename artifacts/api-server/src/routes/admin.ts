@@ -73,6 +73,29 @@ router.patch("/keys/:id/activate", async (req, res) => {
   res.json({ success: true });
 });
 
+router.patch("/keys/:id/extend", async (req, res) => {
+  const id = Number(req.params.id);
+  const { days } = req.body;
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  if (!days || isNaN(Number(days))) { res.status(400).json({ error: "days required" }); return; }
+
+  const [record] = await db.select().from(accessKeysTable).where(eq(accessKeysTable.id, id));
+  if (!record) { res.status(404).json({ error: "Not found" }); return; }
+
+  const base = record.expiresAt && new Date(record.expiresAt) > new Date()
+    ? new Date(record.expiresAt)
+    : new Date();
+  base.setDate(base.getDate() + Number(days));
+
+  const [updated] = await db
+    .update(accessKeysTable)
+    .set({ expiresAt: base })
+    .where(eq(accessKeysTable.id, id))
+    .returning();
+
+  res.json(updated);
+});
+
 router.delete("/keys/:id", async (req, res) => {
   const id = Number(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }

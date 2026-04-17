@@ -15,6 +15,8 @@ import Analyze from "@/pages/analyze/index";
 import MarketNews from "@/pages/news/index";
 import AdminPanel from "@/pages/admin/index";
 import SettingsPage from "@/pages/settings/index";
+import RiskCalculator from "@/pages/calculator/index";
+import EconomicCalendar from "@/pages/calendar/index";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -48,6 +50,8 @@ function AuthenticatedApp() {
         <Route path="/signals/:id" component={SignalDetail} />
         <Route path="/analyze" component={Analyze} />
         <Route path="/news" component={MarketNews} />
+        <Route path="/calculator" component={RiskCalculator} />
+        <Route path="/calendar" component={EconomicCalendar} />
         <Route path="/settings" component={SettingsPage} />
         <Route component={NotFound} />
       </Switch>

@@ -22,8 +22,13 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 ### trading-dashboard (React + Vite)
 Smart Forex Trading Analysis Dashboard — decision-support tool for Smart Money Concept traders.
 - **Preview path**: `/`
-- **Pages**: Dashboard, All Signals, Signal Detail, Live Analyze, Manual Signal
-- **Features**: Support/Resistance detection, Order Block detection, BOS/CHoCH structure, confidence scoring (0-100), Entry/SL/TP signals
+- **Pages**: Dashboard, All Signals, Signal Detail, Live Analyze, Manual Signal, Risk Calculator (`/calculator`), Economic Calendar (`/calendar`), Settings (`/settings`)
+- **Features**: Support/Resistance detection, Order Block detection, BOS/CHoCH structure, confidence scoring (0-100), Entry/SL/TP signals, signal outcome tracking (TP/SL/Expired buttons), push notification alerts, subscription key access system
+- **Admin panel**: Hidden at `/xk-manage` — Overview tab (keys list + last-seen + extend expiry), Settings tab (subscriber link, key generator, Telegram bot config, webhook URL)
+- **Risk Calculator**: Lot size calculator based on account balance, risk %, pair, entry & SL. Shows pips at risk, risk amount, potential profit, R:R ratio.
+- **Economic Calendar**: Fetches this week's events from ForexFactory via backend proxy. Filters by impact and currency.
+- **Push Notifications**: Service worker (`/sw.js`) polls every 60s for new signals and shows browser notifications when granted permission.
+- **Subscription system**: Access keys in format `SFX-XXXXXX-XXXXXX-XXXXXX`. Plans: monthly/quarterly/yearly/lifetime. Keys stored in localStorage. Auth context with 12-hour background revalidation.
 
 ### api-server (Express)
 - **Preview path**: `/api`
