@@ -274,6 +274,76 @@ export default function Analyze() {
         </div>
       )}
 
+      {/* ── No Signal Panel ─────────────────────────────────────────────────── */}
+      {result && result.signal === "NEUTRAL" && (
+        <div className="rounded-xl border border-slate-500/30 bg-slate-500/5 p-6 space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-slate-500/15 flex items-center justify-center shrink-0">
+              <span className="text-slate-400 text-lg font-bold">–</span>
+            </div>
+            <div>
+              <h3 className="text-lg font-bold font-mono text-slate-300">No Valid Signal — Stay Out</h3>
+              <p className="text-sm text-muted-foreground">
+                The market on <span className="font-mono text-slate-300">{result.pair} / {result.timeframe}</span> does not have a clear directional edge right now.
+                Wait for a better setup before entering.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-3">
+            {/* Confluence split */}
+            <div className="rounded-lg border border-border/40 bg-background/40 p-4">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Confluence Split</p>
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-emerald-400 font-semibold">Bullish</span>
+                  <span className="font-mono text-foreground">{result.bullScore} pts</span>
+                </div>
+                <div className="h-2 rounded-full bg-rose-500/20">
+                  <div
+                    className="h-full rounded-full bg-emerald-500 transition-all"
+                    style={{ width: `${Math.round((result.bullScore / (result.bullScore + result.bearScore || 1)) * 100)}%` }}
+                  />
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-rose-400 font-semibold">Bearish</span>
+                  <span className="font-mono text-foreground">{result.bearScore} pts</span>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-2">
+                  Neither side has a clear {">"}58% edge. The market is indecisive — no trade.
+                </p>
+              </div>
+            </div>
+
+            {/* What to wait for */}
+            <div className="rounded-lg border border-border/40 bg-background/40 p-4">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">What To Wait For</p>
+              <ul className="space-y-2 text-sm text-muted-foreground">
+                <li className="flex items-start gap-2"><span className="text-primary mt-0.5">→</span> A clear Break of Structure (BOS) or Change of Character (CHOCH)</li>
+                <li className="flex items-start gap-2"><span className="text-primary mt-0.5">→</span> Price retesting a clean Order Block or FVG</li>
+                <li className="flex items-start gap-2"><span className="text-primary mt-0.5">→</span> HTF bias and session aligning with your entry</li>
+                <li className="flex items-start gap-2"><span className="text-primary mt-0.5">→</span> London Open or New York Open kill zones</li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Reasons from analysis */}
+          {result.reasons && result.reasons.length > 0 && (
+            <div className="rounded-lg border border-border/40 bg-background/40 p-4">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Analysis Observations</p>
+              <ul className="grid sm:grid-cols-2 gap-x-4 gap-y-2">
+                {result.reasons.map((r: string, i: number) => (
+                  <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
+                    <div className="w-1.5 h-1.5 rounded-full bg-slate-500 mt-1.5 shrink-0" />
+                    <span>{r}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── Position Size Calculator ──────────────────────────────────────────── */}
       {result && result.signal !== "NEUTRAL" && (
         <PositionSizeCalc
@@ -282,6 +352,9 @@ export default function Analyze() {
           stopLoss={result.stopLoss}
           takeProfit={result.takeProfit}
           signal={result.signal}
+          confidence={result.confidenceScore}
+          sessionQuality={result.sessionQuality}
+          session={result.session}
         />
       )}
 
