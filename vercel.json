@@ -1,0 +1,8 @@
+{
+  "buildCommand": "pnpm --filter @workspace/trading-dashboard run build",
+  "outputDirectory": "artifacts/trading-dashboard/dist/public",
+  "installCommand": "pnpm install --no-frozen-lockfile",
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/index" }
+  ]
+}
