@@ -59,8 +59,6 @@ function Router() {
   return (
     <Switch>
       <Route path="/xk-manage" component={AdminPanel} />
-      {/* In dev mode: root lands on admin, all other paths open the full dashboard */}
-      {import.meta.env.DEV && <Route path="/" component={AdminPanel} />}
       <Route component={AuthenticatedApp} />
     </Switch>
   );
