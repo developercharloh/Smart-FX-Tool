@@ -56,9 +56,9 @@ function AuthenticatedApp() {
 function Router() {
   return (
     <Switch>
-      {/* Hidden admin route — not shown in navigation */}
       <Route path="/xk-manage" component={AdminPanel} />
-      <Route component={AuthenticatedApp} />
+      {/* In dev (Replit preview), land on admin panel by default */}
+      <Route component={import.meta.env.DEV ? AdminPanel : AuthenticatedApp} />
     </Switch>
   );
 }
