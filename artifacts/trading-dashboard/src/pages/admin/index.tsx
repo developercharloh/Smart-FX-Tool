@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { format } from "date-fns";
 import {
   Shield, Key, Plus, Trash2, Ban, CheckCircle2, Copy, Check,
@@ -109,8 +109,12 @@ function AdminLogin({ onLogin }: { onLogin: (secret: string) => void }) {
   );
 }
 
+const DEV_SECRET = "smartfx-admin-2024";
+
 export default function AdminPanel() {
-  const [secret, setSecret] = useState<string | null>(() => sessionStorage.getItem(SESSION_KEY));
+  const [secret, setSecret] = useState<string | null>(() =>
+    import.meta.env.DEV ? DEV_SECRET : sessionStorage.getItem(SESSION_KEY)
+  );
   const [keys, setKeys] = useState<AccessKey[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -138,6 +142,8 @@ export default function AdminPanel() {
       setLoading(false);
     }
   }, [secret, headers]);
+
+  useEffect(() => { loadKeys(); }, [loadKeys]);
 
   function handleLogin(s: string) {
     setSecret(s);
