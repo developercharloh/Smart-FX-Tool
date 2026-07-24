@@ -5,7 +5,6 @@ import {
   Calendar as CalendarIcon, 
   Cpu, 
   Newspaper, 
-  LogOut,
   Settings,
   Terminal
 } from "lucide-react";
@@ -19,7 +18,7 @@ const NAV_ITEMS = [
   { href: "/calendar", label: "Economic Calendar", icon: CalendarIcon },
 ];
 
-export function Sidebar({ onLogout }: { onLogout: () => void }) {
+export function Sidebar() {
   const [location] = useLocation();
 
   return (
@@ -58,13 +57,7 @@ export function Sidebar({ onLogout }: { onLogout: () => void }) {
             <span className="uppercase tracking-wider text-[11px] font-bold">Admin</span>
           </div>
         </Link>
-        <div 
-          onClick={onLogout}
-          className="flex items-center px-3 py-2 rounded-sm cursor-pointer text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
-        >
-          <LogOut className="w-4 h-4 mr-3" />
-          <span className="uppercase tracking-wider text-[11px] font-bold">Disconnect</span>
-        </div>
+
       </div>
     </div>
   );
