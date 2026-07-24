@@ -1,0 +1,6 @@
+{
+  "version": 2,
+  "installCommand": "pnpm install",
+  "buildCommand": "PORT=3000 BASE_PATH=/ pnpm --filter @workspace/trading-dashboard run build",
+  "outputDirectory": "artifacts/trading-dashboard/dist/public"
+}
