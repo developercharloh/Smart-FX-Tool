@@ -2,5 +2,11 @@
   "version": 2,
   "installCommand": "pnpm install",
   "buildCommand": "PORT=3000 BASE_PATH=/ pnpm --filter @workspace/trading-dashboard run build",
-  "outputDirectory": "artifacts/trading-dashboard/dist/public"
+  "outputDirectory": "artifacts/trading-dashboard/dist/public",
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://smart-fx-tool.replit.app/api/:path*"
+    }
+  ]
 }
