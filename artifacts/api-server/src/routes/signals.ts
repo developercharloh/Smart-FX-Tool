@@ -966,7 +966,47 @@ router.post("/mtf-bias", async (req, res) => {
   res.json({ pair, timeframes: results, alignment });
 });
 
+// ── Market status helpers ─────────────────────────────────────────────────────
+
+function getMarketStatus() {
+  const d   = new Date();
+  const day = d.getUTCDay();           // 0=Sun 1=Mon … 5=Fri 6=Sat
+  const t   = d.getUTCHours() * 60 + d.getUTCMinutes();
+
+  // Forex closes Fri 21:00 UTC, reopens Sun 21:00 UTC
+  const forexOpen =
+    !(day === 6 ||
+      (day === 0 && t < 21 * 60) ||
+      (day === 5 && t >= 21 * 60));
+
+  return {
+    forex:      forexOpen,
+    metals:     forexOpen,   // Gold/Silver follow forex hours
+    crypto:     true,        // 24/7
+    synthetics: true,        // Deriv synthetics 24/7
+    isWeekend:  day === 0 || day === 6,
+  };
+}
+
+function getPairMarket(pair: string): "forex" | "crypto" | "metals" | "energy" | "synthetic" {
+  if (["R_","1HZ","BOOM","CRASH","JD","STPIDX"].some(p => pair.startsWith(p))) return "synthetic";
+  const cryptoBases = ["BTC","ETH","BNB","SOL","ADA","XRP","DOGE","DOT","LTC","AVAX","MATIC","LINK"];
+  if (cryptoBases.some(b => pair.startsWith(b))) return "crypto";
+  if (["XAUUSD","XAGUSD","XPTUSD"].includes(pair)) return "metals";
+  if (["USOIL","UKOIL","NATGAS","COPPER"].includes(pair)) return "energy";
+  return "forex";
+}
+
+function isPairTradeable(pair: string, status: ReturnType<typeof getMarketStatus>): boolean {
+  const market = getPairMarket(pair);
+  if (market === "forex")  return status.forex;
+  if (market === "metals") return status.metals;
+  if (market === "energy") return status.metals; // energy roughly follows forex hours
+  return true; // crypto + synthetics always open
+}
+
 // ── AI Scanner — scan a watchlist, return only high-confidence signals ────────
+
 const SCANNER_DEFAULT_PAIRS = [
   "EURUSD","GBPUSD","USDJPY","AUDUSD","USDCAD","NZDUSD","USDCHF",
   "GBPJPY","EURJPY","EURGBP","AUDJPY",
@@ -975,22 +1015,30 @@ const SCANNER_DEFAULT_PAIRS = [
   "USOIL","UKOIL",
 ];
 
+router.get("/market-status", (_req, res) => {
+  res.json(getMarketStatus());
+});
+
 router.post("/scan", async (req, res) => {
   const {
-    pairs      = SCANNER_DEFAULT_PAIRS,
-    timeframes = ["H1"],
+    pairs         = SCANNER_DEFAULT_PAIRS,
+    timeframes    = ["H1"],
     minConfidence = 80,
   } = req.body;
 
-  if (!Array.isArray(pairs) || pairs.length === 0 || pairs.length > 30)
-    return res.status(400).json({ error: "pairs must be a non-empty array (max 30)" });
+  if (!Array.isArray(pairs) || pairs.length === 0 || pairs.length > 40)
+    return res.status(400).json({ error: "pairs must be a non-empty array (max 40)" });
   if (!Array.isArray(timeframes) || timeframes.length === 0)
     return res.status(400).json({ error: "timeframes required" });
 
-  const prices = await getLivePrices();
+  const marketStatus = getMarketStatus();
+  const prices       = await getLivePrices();
 
-  // Run every pair × timeframe combo in parallel
-  const tasks = (pairs as string[]).flatMap(pair =>
+  // Separate tradeable from closed pairs
+  const tradeablePairs = (pairs as string[]).filter(p => isPairTradeable(p, marketStatus));
+  const closedPairs    = (pairs as string[]).filter(p => !isPairTradeable(p, marketStatus));
+
+  const tasks = tradeablePairs.flatMap(pair =>
     (timeframes as string[]).map(tf => ({ pair, tf }))
   );
 
@@ -1009,10 +1057,12 @@ router.post("/scan", async (req, res) => {
 
   return res.json({
     signals,
-    scannedAt: Date.now(),
-    pairsScanned: pairs.length,
+    scannedAt:         Date.now(),
+    pairsScanned:      tradeablePairs.length,
+    pairsSkipped:      closedPairs,
     timeframesScanned: timeframes,
-    totalFound: signals.length,
+    totalFound:        signals.length,
+    marketStatus,
   });
 });
 

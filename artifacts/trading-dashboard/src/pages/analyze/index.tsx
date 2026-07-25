@@ -32,6 +32,17 @@ import { useChart } from "@/contexts/ChartContext";
 
 const BASE = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
 
+// Which markets each watchlist touches
+const WATCHLIST_MARKETS: Record<string, ("forex"|"metals"|"energy"|"crypto"|"synthetic")[]> = {
+  "Full Scan":         ["forex","metals","energy","crypto"],
+  "Forex Majors":      ["forex"],
+  "Forex Crosses":     ["forex"],
+  "Metals & Energy":   ["metals","energy"],
+  "Crypto":            ["crypto"],
+  "Deriv Synthetics":  ["synthetic"],
+  "24/7 Markets":      ["crypto","synthetic"],
+};
+
 const SCAN_WATCHLISTS: Record<string, string[]> = {
   "Full Scan": [
     "EURUSD","GBPUSD","USDJPY","AUDUSD","USDCAD","NZDUSD","USDCHF",
@@ -40,11 +51,44 @@ const SCAN_WATCHLISTS: Record<string, string[]> = {
     "BTCUSD","ETHUSD",
     "USOIL","UKOIL",
   ],
-  "Forex Majors": ["EURUSD","GBPUSD","USDJPY","AUDUSD","USDCAD","NZDUSD","USDCHF"],
+  "Forex Majors":  ["EURUSD","GBPUSD","USDJPY","AUDUSD","USDCAD","NZDUSD","USDCHF"],
   "Forex Crosses": ["GBPJPY","EURJPY","EURGBP","AUDJPY","GBPCAD","AUDNZD"],
   "Metals & Energy": ["XAUUSD","XAGUSD","USOIL","UKOIL"],
-  "Crypto": ["BTCUSD","ETHUSD"],
+  "Crypto":          ["BTCUSD","ETHUSD"],
+  // Deriv Broker — always open 24/7
+  "Deriv Synthetics": [
+    "R_10","R_25","R_50","R_75","R_100",
+    "1HZ10V","1HZ25V","1HZ50V","1HZ75V","1HZ100V",
+    "BOOM300","BOOM500","BOOM1000",
+    "CRASH300","CRASH500","CRASH1000",
+    "JD10","JD25","JD50",
+  ],
+  "24/7 Markets": [
+    "BTCUSD","ETHUSD",
+    "R_10","R_25","R_50","R_75","R_100",
+    "BOOM500","BOOM1000","CRASH500","CRASH1000",
+  ],
 };
+
+// ── Client-side market status ─────────────────────────────────────────────────
+function detectMarketStatus() {
+  const d   = new Date();
+  const day = d.getUTCDay();
+  const t   = d.getUTCHours() * 60 + d.getUTCMinutes();
+  const forexOpen = !(day === 6 || (day === 0 && t < 21*60) || (day === 5 && t >= 21*60));
+  return { forex: forexOpen, metals: forexOpen, energy: forexOpen, crypto: true, synthetic: true, isWeekend: day === 0 || day === 6 };
+}
+
+function watchlistHasClosedMarkets(key: string, status: ReturnType<typeof detectMarketStatus>) {
+  const markets = WATCHLIST_MARKETS[key] ?? [];
+  return markets.some(m => !status[m as keyof typeof status]);
+}
+
+// Suggest the best watchlist given current market hours
+function suggestWatchlist(status: ReturnType<typeof detectMarketStatus>): string {
+  if (status.forex) return "Full Scan";
+  return "Deriv Synthetics"; // weekend → go 24/7 synthetics
+}
 
 const SCAN_TIMEFRAMES = [
   { value: "M15", label: "M15" },
@@ -375,12 +419,21 @@ export default function Analyze() {
   const [eaSetupOpen, setEaSetupOpen] = useState(false);
   const queueMT5 = useQueueMT5();
 
-  // Scanner state
-  const [watchlistKey, setWatchlistKey] = useState<string>("Full Scan");
+  // Market status (recomputed on mount + every minute)
+  const [marketStatus, setMarketStatus] = useState(detectMarketStatus);
+  useEffect(() => {
+    const tick = () => setMarketStatus(detectMarketStatus());
+    const id = setInterval(tick, 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Scanner state — default to best watchlist for current market hours
+  const [watchlistKey, setWatchlistKey] = useState<string>(() => suggestWatchlist(detectMarketStatus()));
   const [scanTF, setScanTF]             = useState<string[]>(["H1"]);
   const [minConf, setMinConf]           = useState(80);
   const [scanning, setScanning]         = useState(false);
   const [scanResults, setScanResults]   = useState<ScanResult[] | null>(null);
+  const [skippedPairs, setSkippedPairs] = useState<string[]>([]);
   const [lastScanned, setLastScanned]   = useState<Date | null>(null);
   const [scanError, setScanError]       = useState<string | null>(null);
   const [autoScan, setAutoScan]         = useState(false);
@@ -409,6 +462,7 @@ export default function Analyze() {
       if (!resp.ok) throw new Error(await resp.text());
       const data = await resp.json();
       setScanResults(data.signals);
+      setSkippedPairs(data.pairsSkipped ?? []);
       setLastScanned(new Date());
 
       // Auto-feed: queue any new high-confidence signals that haven't been queued yet
@@ -520,8 +574,10 @@ export default function Analyze() {
             <h1 className="text-3xl font-bold tracking-tight text-foreground font-mono">AI Scanner</h1>
           </div>
           <p className="text-muted-foreground text-sm">
-            Scans {SCAN_WATCHLISTS[watchlistKey]?.length ?? 17} real-market instruments using live OHLCV data.
-            Only signals with ≥{minConf}% confidence are shown.
+            {marketStatus.forex
+              ? <>Scans {SCAN_WATCHLISTS[watchlistKey]?.length ?? 17} instruments with live OHLCV data. Only signals ≥{minConf}% confidence are shown.</>
+              : <>Forex &amp; metals markets are <span className="text-orange-400 font-semibold">closed</span> this weekend. Deriv Synthetics and Crypto trade <span className="text-emerald-400 font-semibold">24/7</span>.</>
+            }
           </p>
         </div>
         <button
@@ -538,6 +594,58 @@ export default function Analyze() {
         </button>
       </div>
 
+      {/* ── Market Status Banner ──────────────────────────────────────────────── */}
+      {!marketStatus.forex && (
+        <div
+          style={{
+            background: "linear-gradient(135deg, rgba(251,146,60,0.06), rgba(234,88,12,0.04))",
+            border: "1px solid rgba(251,146,60,0.25)",
+          }}
+          className="rounded-[14px] p-4 flex flex-wrap items-center gap-3"
+        >
+          {/* Status dots */}
+          <div className="flex items-center gap-4 flex-wrap flex-1">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+              <span className="text-xs font-semibold text-rose-400">Forex — Closed</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+              <span className="text-xs font-semibold text-rose-400">Metals / Oil — Closed</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-400" />
+              <span className="text-xs font-semibold text-emerald-400">Crypto — Open 24/7</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-cyan-400" />
+              <span className="text-xs font-semibold text-cyan-400">Deriv Synthetics — Open 24/7</span>
+            </div>
+          </div>
+
+          {/* Suggest 24/7 watchlist */}
+          {watchlistHasClosedMarkets(watchlistKey, marketStatus) && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-orange-300/80">
+                {skippedPairs.length > 0
+                  ? `${skippedPairs.length} pairs skipped — markets closed`
+                  : "Your watchlist includes closed markets"}
+              </span>
+              <button
+                onClick={() => setWatchlistKey("Deriv Synthetics")}
+                style={{
+                  background: "rgba(0,255,255,0.1)",
+                  border: "1px solid rgba(0,255,255,0.3)",
+                }}
+                className="text-xs font-bold text-cyan-300 px-3 py-1.5 rounded-full transition-all hover:bg-cyan-500/20 shrink-0"
+              >
+                Switch to Deriv Synthetics →
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── EA Setup Guide ────────────────────────────────────────────────────── */}
       {eaSetupOpen && (
         <div style={{ background:"rgba(11,15,25,0.8)", border:"1px solid rgba(0,255,255,0.12)", backdropFilter:"blur(16px)" }}
@@ -551,11 +659,11 @@ export default function Analyze() {
           <div className="grid md:grid-cols-2 gap-4">
             <div className="space-y-3">
               {[
-                { n:1, text:"Download the EA file → copy to MQL5\\Experts\\ in your MT5 folder" },
+                { n:1, text:"Download the EA file → copy to MQL5\\Experts\\ in your Deriv MT5 folder" },
                 { n:2, text:"Open MetaEditor (F4), find SmartFX_EA.mq5, compile it (F7)" },
-                { n:3, text:"MT5 → Tools → Options → Expert Advisors → enable Allow automated trading & Allow WebRequest" },
+                { n:3, text:"Deriv MT5 → Tools → Options → Expert Advisors → tick 'Allow automated trading' and 'Allow WebRequest for listed URL'" },
                 { n:4, text:"Add to WebRequest whitelist: smart-fx-tool.replit.app" },
-                { n:5, text:"Attach EA to any chart. Set EA_KEY to the key below and configure your risk %" },
+                { n:5, text:"Attach EA to any Deriv chart (Volatility, Forex, or Crypto). Set EA_KEY and your risk % then click OK" },
               ].map(({ n, text }) => (
                 <div key={n} className="flex gap-3">
                   <span style={{ background:"rgba(0,255,255,0.08)", border:"1px solid rgba(0,255,255,0.15)", color:"#00e5e5" }}
@@ -595,16 +703,23 @@ export default function Analyze() {
         <div className="flex flex-wrap gap-4 items-end">
 
           {/* Watchlist */}
-          <div className="flex-1 min-w-[180px] space-y-1.5">
+          <div className="flex-1 min-w-[200px] space-y-1.5">
             <label className="text-xs font-bold uppercase tracking-widest text-slate-500">Watchlist</label>
             <div className="relative">
               <select value={watchlistKey} onChange={e => setWatchlistKey(e.target.value)}
-                style={{ background:"rgba(255,255,255,0.04)", border:"1px solid rgba(0,255,255,0.2)" }}
+                style={{ background:"rgba(255,255,255,0.04)", border: watchlistHasClosedMarkets(watchlistKey, marketStatus) ? "1px solid rgba(251,146,60,0.4)" : "1px solid rgba(0,255,255,0.2)" }}
                 className="w-full appearance-none rounded-[10px] px-4 py-3 text-sm font-mono text-white focus:outline-none cursor-pointer pr-10"
               >
-                {Object.keys(SCAN_WATCHLISTS).map(k => (
-                  <option key={k} value={k} style={{ background:"#0b0f19" }}>{k} ({SCAN_WATCHLISTS[k].length} pairs)</option>
-                ))}
+                {Object.keys(SCAN_WATCHLISTS).map(k => {
+                  const hasClosed = watchlistHasClosedMarkets(k, marketStatus);
+                  const is247 = WATCHLIST_MARKETS[k]?.every(m => m === "crypto" || m === "synthetic");
+                  const prefix = is247 ? "🟢 " : hasClosed ? "🔴 " : "";
+                  return (
+                    <option key={k} value={k} style={{ background:"#0b0f19" }}>
+                      {prefix}{k} ({SCAN_WATCHLISTS[k].length} pairs){is247 ? " — 24/7" : hasClosed ? " — CLOSED" : ""}
+                    </option>
+                  );
+                })}
               </select>
               <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
             </div>
@@ -717,9 +832,12 @@ export default function Analyze() {
 
           {/* Status */}
           {lastScanned && (
-            <div className="ml-auto flex items-center gap-2 text-[11px] text-slate-500">
+            <div className="ml-auto flex items-center gap-2 text-[11px] text-slate-500 flex-wrap">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               Last scan: {secondsAgo}s ago · {scanResults?.length ?? 0} signal{scanResults?.length !== 1 ? "s" : ""} found
+              {skippedPairs.length > 0 && (
+                <span className="text-orange-400/70">· {skippedPairs.length} skipped (market closed)</span>
+              )}
             </div>
           )}
         </div>
