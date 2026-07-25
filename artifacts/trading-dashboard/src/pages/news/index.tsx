@@ -1,113 +1,299 @@
-import { useState, useEffect } from "react";
-import { Card } from "@/components/ui/card";
-import { Newspaper, ExternalLink, Loader2, AlertTriangle, Clock } from "lucide-react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Newspaper, RefreshCw, ExternalLink, Clock, Tag, AlertTriangle, Minus } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
-interface NewsArticle {
-  id: string | number;
+interface NewsItem {
+  id: string;
   title: string;
-  source?: string;
-  url?: string;
-  time?: string;
-  publishedAt?: string;
-  impact?: string;
+  description: string;
+  url: string;
+  source: string;
+  category: string;
+  publishedAt: string;
+  impact: "major" | "minor";
+  imageUrl?: string;
 }
 
-export default function News() {
-  const [news, setNews] = useState<NewsArticle[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(false);
+interface NewsResponse {
+  items: NewsItem[];
+  cached: boolean;
+}
 
-  useEffect(() => {
-    fetch("/api/news")
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to fetch news");
-        return res.json();
-      })
-      .then((data) => {
-        setNews(Array.isArray(data) ? data : data.news || []);
-        setError(false);
-      })
-      .catch((err) => {
-        console.error(err);
-        setError(true);
-      })
-      .finally(() => {
-        setIsLoading(false);
-      });
-  }, []);
+const SOURCE_COLORS: Record<string, string> = {
+  Reuters: "bg-orange-500/10 text-orange-400 border-orange-500/20",
+  MarketWatch: "bg-green-500/10 text-green-400 border-green-500/20",
+  FXStreet: "bg-blue-500/10 text-blue-400 border-blue-500/20",
+  "Investing.com": "bg-purple-500/10 text-purple-400 border-purple-500/20",
+  ForexLive: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20",
+};
 
-  if (isLoading) {
-    return (
-      <div className="h-full flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-      </div>
-    );
-  }
+const CATEGORIES = ["All", "Forex", "Markets", "Business"];
+const IMPACTS = ["All", "Major", "Minor"] as const;
 
-  if (error) {
-    return (
-      <div className="h-full flex items-center justify-center text-destructive font-mono uppercase tracking-widest gap-2">
-        <AlertTriangle className="w-5 h-5" /> Error loading news feed
-      </div>
-    );
-  }
+function timeAgo(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
+}
+
+async function fetchNews(): Promise<NewsResponse> {
+  const base = (import.meta.env.BASE_URL || "/").replace(/\/$/, "");
+  const res = await fetch(`${base}/api/news`);
+  if (!res.ok) throw new Error("Failed to fetch news");
+  return res.json();
+}
+
+function FilterButton({
+  active,
+  onClick,
+  children,
+  className,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "px-3 py-1 rounded-full text-xs font-semibold border transition-colors",
+        active
+          ? "bg-primary/10 text-primary border-primary/30"
+          : "bg-card text-muted-foreground border-border/50 hover:border-border",
+        className
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+export default function MarketNews() {
+  const [activeCategory, setActiveCategory] = useState("All");
+  const [activeSource, setActiveSource] = useState("All");
+  const [activeImpact, setActiveImpact] = useState<"All" | "Major" | "Minor">("All");
+
+  const { data, isLoading, isError, refetch, isFetching } = useQuery<NewsResponse>({
+    queryKey: ["market-news"],
+    queryFn: fetchNews,
+    staleTime: 5 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
+  });
+
+  const sources = data
+    ? ["All", ...Array.from(new Set(data.items.map((i) => i.source)))]
+    : ["All"];
+
+  const filtered = (data?.items || []).filter((item) => {
+    const catMatch = activeCategory === "All" || item.category === activeCategory;
+    const srcMatch = activeSource === "All" || item.source === activeSource;
+    const impactMatch =
+      activeImpact === "All" || item.impact === activeImpact.toLowerCase();
+    return catMatch && srcMatch && impactMatch;
+  });
+
+  const majorCount = (data?.items || []).filter((i) => i.impact === "major").length;
+  const minorCount = (data?.items || []).filter((i) => i.impact === "minor").length;
 
   return (
-    <div className="p-6 md:p-10 max-w-5xl mx-auto space-y-6">
-      <div className="border-b border-border pb-4">
-        <h1 className="text-2xl font-bold tracking-widest uppercase flex items-center gap-2">
-          <Newspaper className="w-6 h-6 text-primary" />
-          Market News
-        </h1>
-        <p className="text-muted-foreground text-sm font-mono mt-1 uppercase">Global Macro Drivers & Headlines</p>
+    <div className="space-y-6 max-w-7xl mx-auto">
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-foreground font-mono">Market News</h1>
+          <p className="text-muted-foreground mt-1">
+            Live financial news from Reuters, MarketWatch, FXStreet and more — aggregated in real time.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => refetch()}
+          disabled={isFetching}
+          className="flex items-center gap-2"
+        >
+          <RefreshCw className={cn("w-4 h-4", isFetching && "animate-spin")} />
+          {isFetching ? "Refreshing..." : "Refresh"}
+        </Button>
       </div>
 
-      <div className="space-y-4">
-        {news.length === 0 ? (
-          <div className="text-center py-12 text-muted-foreground font-mono text-xs uppercase tracking-widest">
-            No news articles available at this time
-          </div>
-        ) : (
-          news.map((article, i) => (
-            <Card key={article.id || i} className="p-4 bg-card/30 border-border/50 hover:bg-card/60 transition-colors group">
-              <a href={article.url || "#"} target="_blank" rel="noreferrer" className="block">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h3 className="font-bold text-lg leading-tight mb-2 group-hover:text-primary transition-colors">
-                      {article.title}
-                    </h3>
-                    <div className="flex items-center gap-4 text-xs font-mono text-muted-foreground uppercase tracking-wider">
-                      {(article.time || article.publishedAt) && (
-                        <span className="flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
-                          {article.time || article.publishedAt}
-                        </span>
-                      )}
-                      {article.source && (
-                        <span className="px-2 py-0.5 bg-secondary rounded-sm">
-                          {article.source}
-                        </span>
-                      )}
-                      {article.impact && (
-                        <span className={`px-2 py-0.5 rounded-sm font-bold ${
-                          article.impact.toLowerCase() === 'high' ? 'bg-destructive/20 text-destructive' :
-                          article.impact.toLowerCase() === 'medium' ? 'bg-chart-4/20 text-chart-4' :
-                          'bg-primary/20 text-primary'
-                        }`}>
-                          {article.impact} IMPACT
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  {article.url && (
-                    <ExternalLink className="w-4 h-4 text-muted-foreground group-hover:text-primary shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+      {/* Impact toggle — prominent */}
+      <div className="flex items-center gap-3 p-4 rounded-xl border border-border/50 bg-card/50">
+        <span className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Impact:</span>
+        <div className="flex items-center gap-2">
+          <FilterButton active={activeImpact === "All"} onClick={() => setActiveImpact("All")}>
+            All {data && `(${data.items.length})`}
+          </FilterButton>
+          <FilterButton
+            active={activeImpact === "Major"}
+            onClick={() => setActiveImpact("Major")}
+            className={activeImpact === "Major" ? "!bg-rose-500/10 !text-rose-400 !border-rose-500/30" : ""}
+          >
+            <span className="flex items-center gap-1.5">
+              <AlertTriangle className="w-3 h-3" />
+              Major {data && `(${majorCount})`}
+            </span>
+          </FilterButton>
+          <FilterButton
+            active={activeImpact === "Minor"}
+            onClick={() => setActiveImpact("Minor")}
+            className={activeImpact === "Minor" ? "!bg-slate-500/10 !text-slate-400 !border-slate-500/30" : ""}
+          >
+            <span className="flex items-center gap-1.5">
+              <Minus className="w-3 h-3" />
+              Minor {data && `(${minorCount})`}
+            </span>
+          </FilterButton>
+        </div>
+      </div>
+
+      {/* Secondary filters */}
+      <div className="flex flex-wrap gap-4">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Category:</span>
+          {CATEGORIES.map((cat) => (
+            <FilterButton key={cat} active={activeCategory === cat} onClick={() => setActiveCategory(cat)}>
+              {cat}
+            </FilterButton>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Source:</span>
+          {sources.map((src) => (
+            <FilterButton key={src} active={activeSource === src} onClick={() => setActiveSource(src)}>
+              {src}
+            </FilterButton>
+          ))}
+        </div>
+      </div>
+
+      {/* Stats bar */}
+      {data && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Newspaper className="w-4 h-4" />
+          <span>
+            Showing <span className="text-foreground font-semibold">{filtered.length}</span> articles
+            {data.cached && " (cached)"}
+          </span>
+        </div>
+      )}
+
+      {/* Loading skeleton */}
+      {isLoading && (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {Array.from({ length: 9 }).map((_, i) => (
+            <div key={i} className="bg-card border border-border/50 rounded-xl p-5 space-y-3 animate-pulse">
+              <div className="h-3 bg-muted rounded w-1/3" />
+              <div className="h-5 bg-muted rounded w-full" />
+              <div className="h-5 bg-muted rounded w-4/5" />
+              <div className="h-3 bg-muted rounded w-full" />
+              <div className="h-3 bg-muted rounded w-2/3" />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Error */}
+      {isError && (
+        <div className="text-center py-16 text-muted-foreground border border-dashed border-border rounded-xl">
+          <Newspaper className="w-10 h-10 mx-auto mb-3 opacity-30" />
+          <p className="font-semibold">Could not load news right now.</p>
+          <p className="text-sm mt-1">Check your connection and try refreshing.</p>
+          <Button variant="outline" className="mt-4" onClick={() => refetch()}>
+            Try Again
+          </Button>
+        </div>
+      )}
+
+      {/* Empty state */}
+      {!isLoading && !isError && filtered.length === 0 && (
+        <div className="text-center py-16 text-muted-foreground border border-dashed border-border rounded-xl">
+          <Newspaper className="w-10 h-10 mx-auto mb-3 opacity-30" />
+          <p className="font-semibold">No articles match your filters.</p>
+        </div>
+      )}
+
+      {/* News grid */}
+      {!isLoading && filtered.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {filtered.map((item) => (
+            <a
+              key={item.id}
+              href={item.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={cn(
+                "group bg-card border rounded-xl p-5 flex flex-col gap-3 hover:bg-card/80 transition-all duration-150",
+                item.impact === "major"
+                  ? "border-rose-500/20 hover:border-rose-500/40"
+                  : "border-border/50 hover:border-border"
+              )}
+            >
+              {/* Top row */}
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "text-[10px] font-bold uppercase tracking-wider border",
+                      SOURCE_COLORS[item.source] || "bg-muted text-muted-foreground border-border"
+                    )}
+                  >
+                    {item.source}
+                  </Badge>
+                  {/* Impact indicator */}
+                  {item.impact === "major" ? (
+                    <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-full px-2 py-0.5">
+                      <AlertTriangle className="w-2.5 h-2.5" /> Major
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground bg-muted/30 border border-border/30 rounded-full px-2 py-0.5">
+                      <Minus className="w-2.5 h-2.5" /> Minor
+                    </span>
                   )}
                 </div>
-              </a>
-            </Card>
-          ))
-        )}
-      </div>
+                <div className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
+                  <Clock className="w-3 h-3" />
+                  {timeAgo(item.publishedAt)}
+                </div>
+              </div>
+
+              {/* Title */}
+              <h3 className="font-semibold text-sm leading-snug text-foreground group-hover:text-primary transition-colors line-clamp-3">
+                {item.title}
+              </h3>
+
+              {/* Description */}
+              {item.description && (
+                <p className="text-xs text-muted-foreground leading-relaxed line-clamp-3">
+                  {item.description}
+                </p>
+              )}
+
+              {/* Footer */}
+              <div className="flex items-center justify-between mt-auto pt-2 border-t border-border/30">
+                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <Tag className="w-3 h-3" />
+                  {item.category}
+                </div>
+                <span className="flex items-center gap-1 text-xs text-primary opacity-0 group-hover:opacity-100 transition-opacity">
+                  Read more <ExternalLink className="w-3 h-3" />
+                </span>
+              </div>
+            </a>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

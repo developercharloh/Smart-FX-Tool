@@ -1,131 +1,197 @@
-import { useState, useEffect } from "react";
-import { Card } from "@/components/ui/card";
-import { Calendar as CalendarIcon, Loader2, AlertTriangle, Filter } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { CalendarDays, AlertTriangle, Minus, TrendingUp, RefreshCw, Globe } from "lucide-react";
+import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 
-interface EconomicEvent {
-  id?: string;
+const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+interface CalendarEvent {
   title: string;
   country: string;
   date: string;
   time: string;
-  impact: string;
+  impact: "High" | "Medium" | "Low" | string;
   forecast?: string;
   previous?: string;
+  actual?: string;
 }
 
-export default function Calendar() {
-  const [events, setEvents] = useState<EconomicEvent[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(false);
+const IMPACT_CONFIG = {
+  High:   { color: "text-rose-400",   bg: "bg-rose-500/10 border-rose-500/20",    icon: AlertTriangle, dot: "bg-rose-500"   },
+  Medium: { color: "text-amber-400",  bg: "bg-amber-500/10 border-amber-500/20",  icon: TrendingUp,    dot: "bg-amber-500"  },
+  Low:    { color: "text-blue-400",   bg: "bg-blue-500/10 border-blue-500/20",    icon: Minus,         dot: "bg-blue-500"   },
+};
 
-  useEffect(() => {
-    fetch("/api/calendar")
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to fetch calendar");
-        return res.json();
-      })
-      .then((data) => {
-        setEvents(Array.isArray(data) ? data : data.events || []);
-        setError(false);
-      })
-      .catch((err) => {
-        console.error(err);
-        setError(true);
-      })
-      .finally(() => {
-        setIsLoading(false);
-      });
-  }, []);
+const FLAG_EMOJI: Record<string, string> = {
+  USD: "🇺🇸", EUR: "🇪🇺", GBP: "🇬🇧", JPY: "🇯🇵", AUD: "🇦🇺",
+  CAD: "🇨🇦", CHF: "🇨🇭", NZD: "🇳🇿", CNY: "🇨🇳", ALL: "🌐",
+};
 
-  if (isLoading) {
-    return (
-      <div className="h-full flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-      </div>
-    );
+function normalizeDate(dateStr: string): string {
+  if (!dateStr) return dateStr;
+  try {
+    const d = new Date(dateStr);
+    if (!isNaN(d.getTime())) return d.toISOString().split("T")[0];
+  } catch {}
+  return dateStr.slice(0, 10);
+}
+
+function groupByDate(events: CalendarEvent[]) {
+  const groups: Record<string, CalendarEvent[]> = {};
+  for (const ev of events) {
+    const key = normalizeDate(ev.date);
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(ev);
   }
+  return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
+}
 
-  if (error) {
-    return (
-      <div className="h-full flex items-center justify-center text-destructive font-mono uppercase tracking-widest gap-2">
-        <AlertTriangle className="w-5 h-5" /> Error loading economic calendar
-      </div>
-    );
-  }
+function formatEventDate(dateStr: string) {
+  try {
+    const d = new Date(dateStr + "T12:00:00Z");
+    return format(d, "EEEE, MMMM d");
+  } catch { return dateStr; }
+}
+
+function isToday(dateStr: string) {
+  return dateStr === new Date().toISOString().split("T")[0];
+}
+
+export default function EconomicCalendar() {
+  const [impactFilter, setImpactFilter] = React.useState<string>("All");
+  const [countryFilter, setCountryFilter] = React.useState<string>("All");
+
+  const { data, isLoading, isError, refetch, isFetching } = useQuery<CalendarEvent[]>({
+    queryKey: ["economic-calendar"],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE}/api/calendar`);
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+    staleTime: 1000 * 60 * 15,
+  });
+
+  const countries = data
+    ? ["All", ...Array.from(new Set(data.map(e => e.country))).sort()]
+    : ["All"];
+
+  const filtered = (data ?? []).filter(ev => {
+    const matchImpact  = impactFilter  === "All" || ev.impact  === impactFilter;
+    const matchCountry = countryFilter === "All" || ev.country === countryFilter;
+    return matchImpact && matchCountry;
+  });
+
+  const groups = groupByDate(filtered);
 
   return (
-    <div className="p-6 md:p-10 max-w-6xl mx-auto space-y-6">
-      <div className="border-b border-border pb-4 flex items-end justify-between">
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-widest uppercase flex items-center gap-2">
-            <CalendarIcon className="w-6 h-6 text-primary" />
-            Economic Calendar
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <CalendarDays className="w-6 h-6 text-primary" /> Economic Calendar
           </h1>
-          <p className="text-muted-foreground text-sm font-mono mt-1 uppercase">High-Impact Macro Events</p>
+          <p className="text-sm text-muted-foreground mt-1">This week's high-impact economic events.</p>
+        </div>
+        <button onClick={() => refetch()} disabled={isFetching}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border/60 text-sm text-muted-foreground hover:text-foreground transition-colors">
+          <RefreshCw className={cn("w-3.5 h-3.5", isFetching && "animate-spin")} /> Refresh
+        </button>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap gap-3 bg-card/30 border border-border/40 rounded-xl p-4">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Impact:</span>
+          {["All", "High", "Medium", "Low"].map(imp => (
+            <button key={imp} onClick={() => setImpactFilter(imp)}
+              className={cn(
+                "px-2.5 py-1 rounded-lg text-xs font-bold border transition-all",
+                impactFilter === imp ? "bg-primary/15 border-primary/40 text-primary" : "border-border/40 text-muted-foreground hover:border-primary/30"
+              )}>{imp}</button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Currency:</span>
+          <select value={countryFilter} onChange={e => setCountryFilter(e.target.value)}
+            className="bg-background border border-border/60 rounded-lg px-2 py-1 text-xs text-foreground focus:outline-none focus:border-primary/60">
+            {countries.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
         </div>
       </div>
 
-      <div className="border border-border/50 rounded-sm bg-card/30 overflow-x-auto">
-        <table className="w-full text-sm text-left font-mono">
-          <thead className="text-xs text-muted-foreground uppercase bg-secondary/50 border-b border-border/50">
-            <tr>
-              <th className="px-4 py-3 font-normal">Time</th>
-              <th className="px-4 py-3 font-normal">Country</th>
-              <th className="px-4 py-3 font-normal">Impact</th>
-              <th className="px-4 py-3 font-normal">Event</th>
-              <th className="px-4 py-3 font-normal text-right">Actual</th>
-              <th className="px-4 py-3 font-normal text-right">Forecast</th>
-              <th className="px-4 py-3 font-normal text-right">Previous</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border/50">
-            {events.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground uppercase tracking-widest text-xs">
-                  No upcoming events
-                </td>
-              </tr>
-            ) : (
-              events.map((ev, i) => (
-                <tr key={ev.id || i} className="hover:bg-card/80 transition-colors">
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    <div className="font-bold">{ev.time}</div>
-                    <div className="text-[10px] text-muted-foreground">{ev.date}</div>
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    <span className="px-2 py-1 bg-secondary rounded-sm font-bold text-xs">
-                      {ev.country}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    <span className={cn(
-                      "text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider font-bold",
-                      ev.impact?.toUpperCase() === "HIGH" ? "bg-destructive/20 text-destructive border border-destructive/30" :
-                      ev.impact?.toUpperCase() === "MEDIUM" ? "bg-chart-4/20 text-chart-4 border border-chart-4/30" :
-                      "bg-primary/20 text-primary border border-primary/30"
-                    )}>
-                      {ev.impact}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-sm max-w-xs truncate" title={ev.title}>
-                    {ev.title}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-right font-bold text-muted-foreground">
-                    --
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-right">
-                    {ev.forecast || "--"}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-right text-muted-foreground">
-                    {ev.previous || "--"}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+      {isLoading && (
+        <div className="space-y-4">
+          {[1,2,3].map(i => (
+            <div key={i} className="rounded-xl border border-border/40 bg-card/30 p-5 animate-pulse space-y-3">
+              <div className="h-4 w-32 bg-border/40 rounded" />
+              {[1,2].map(j => <div key={j} className="h-14 bg-border/20 rounded-lg" />)}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {isError && (
+        <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 p-6 text-center">
+          <p className="text-sm text-rose-400">Could not load calendar data.</p>
+        </div>
+      )}
+
+      {!isLoading && groups.length === 0 && (
+        <div className="rounded-xl border border-border/40 bg-card/30 p-10 text-center">
+          <Globe className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
+          <p className="text-muted-foreground text-sm">No events match your filters this week.</p>
+        </div>
+      )}
+
+      {groups.map(([dateStr, events]) => (
+        <div key={dateStr} className="rounded-xl border border-border/40 bg-card/30 overflow-hidden">
+          <div className={cn(
+            "px-5 py-3 border-b border-border/40 flex items-center justify-between",
+            isToday(dateStr) && "bg-primary/5 border-primary/20"
+          )}>
+            <h2 className="text-sm font-bold flex items-center gap-2">
+              <CalendarDays className="w-4 h-4 text-primary" />
+              {formatEventDate(dateStr)}
+              {isToday(dateStr) && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary/20 text-primary border border-primary/30">TODAY</span>
+              )}
+            </h2>
+            <span className="text-xs text-muted-foreground">{events.length} event{events.length !== 1 ? "s" : ""}</span>
+          </div>
+
+          <div className="divide-y divide-border/30">
+            {events.map((ev, i) => {
+              const impact = IMPACT_CONFIG[ev.impact as keyof typeof IMPACT_CONFIG] ?? IMPACT_CONFIG.Low;
+              const flag   = FLAG_EMOJI[ev.country] ?? "🌐";
+              return (
+                <div key={i} className="px-5 py-3.5 flex items-center gap-4">
+                  <div className="text-xs font-mono text-muted-foreground w-14 shrink-0">
+                    {ev.time ? ev.time.slice(0,5) : "—"} <span className="text-[9px]">UTC</span>
+                  </div>
+                  <div className={cn("w-2 h-2 rounded-full shrink-0", impact.dot)} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-foreground truncate">{ev.title}</p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">{flag} {ev.country}</p>
+                  </div>
+                  <div className={cn("px-2 py-0.5 rounded-full border text-[10px] font-bold shrink-0", impact.bg, impact.color)}>
+                    {ev.impact}
+                  </div>
+                  <div className="text-right shrink-0 hidden sm:block">
+                    {ev.actual ? (
+                      <p className="text-xs font-bold text-emerald-400 font-mono">{ev.actual}</p>
+                    ) : ev.forecast ? (
+                      <p className="text-xs text-muted-foreground font-mono">F: {ev.forecast}</p>
+                    ) : null}
+                    {ev.previous && <p className="text-[10px] text-muted-foreground/60 font-mono">P: {ev.previous}</p>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
+
+import React from "react";
