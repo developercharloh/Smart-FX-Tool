@@ -7,16 +7,18 @@ import authRouter from "./auth";
 import adminRouter from "./admin";
 import calendarRouter from "./calendar";
 import derivRouter from "./deriv";
+import eaRouter from "./ea";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
-router.use("/signals", signalsRouter);
-router.use("/pairs", pairsRouter);
-router.use("/news", newsRouter);
-router.use("/auth", authRouter);
-router.use("/admin", adminRouter);
+router.use("/signals",  signalsRouter);
+router.use("/pairs",    pairsRouter);
+router.use("/news",     newsRouter);
+router.use("/auth",     authRouter);
+router.use("/admin",    adminRouter);
 router.use("/calendar", calendarRouter);
-router.use("/deriv", derivRouter);
+router.use("/deriv",    derivRouter);
+router.use("/ea",       eaRouter);
 
 export default router;

@@ -16,6 +16,7 @@ import AdminPanel from "@/pages/admin/index";
 import SettingsPage from "@/pages/settings/index";
 import RiskCalculator from "@/pages/calculator/index";
 import EconomicCalendar from "@/pages/calendar/index";
+import SetupPage from "@/pages/setup/index";
 
 
 const queryClient = new QueryClient({
@@ -39,6 +40,7 @@ function MainApp() {
         <Route path="/calculator" component={RiskCalculator} />
         <Route path="/calendar" component={EconomicCalendar} />
         <Route path="/settings" component={SettingsPage} />
+        <Route path="/setup"    component={SetupPage}   />
 
         <Route component={NotFound} />
       </Switch>

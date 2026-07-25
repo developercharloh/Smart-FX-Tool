@@ -13,6 +13,7 @@ const NAV_LINKS = [
   { href: "/news",        label: "News",         emoji: "📰" },
   { href: "/calculator",  label: "Risk Calc",    emoji: "🧮" },
   { href: "/calendar",    label: "Econ Calendar",emoji: "📅" },
+  { href: "/setup",       label: "MT5 Setup",    emoji: "⚙️"  },
 ];
 
 const NOTIFS = [

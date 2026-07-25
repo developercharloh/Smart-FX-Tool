@@ -239,14 +239,41 @@ function ScannerSignalCard({
   result: ScanResult;
   onDeepAnalyze: (pair: string, tf: string) => void;
 }) {
-  const { token, executeTrade } = useDerivTradeCtx();
   const [cardResult, setCardResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [feeding, setFeeding] = useState(false);
 
-  function handleExecute() {
+  async function handleFeedToEA() {
+    setFeeding(true);
     setCardResult(null);
-    const res = executeTrade(result.pair, result.signal as "BUY" | "SELL");
-    setCardResult(res);
-    setTimeout(() => setCardResult(null), 5000);
+    try {
+      const body = {
+        pair:             result.pair,
+        signal:           result.signal,
+        timeframe:        result.timeframe,
+        entry:            result.entry,
+        stopLoss:         result.stopLoss,
+        takeProfit:       result.takeProfit,
+        confidenceScore:  result.confidenceScore,
+        riskRewardRatio:  result.riskRewardRatio,
+        reasons:          result.reasons,
+        structureType:    result.structureType ?? "NONE",
+        trend:            result.trend ?? "NEUTRAL",
+        hasOrderBlock:        result.hasOrderBlock ?? false,
+        hasSupportResistance: false,
+      };
+      const r = await fetch(`${BASE}/api/signals`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error(await r.text());
+      setCardResult({ ok: true, message: "✓ Signal queued — EA will trade it" });
+    } catch (e: any) {
+      setCardResult({ ok: false, message: e.message ?? "Failed to queue signal" });
+    } finally {
+      setFeeding(false);
+      setTimeout(() => setCardResult(null), 5000);
+    }
   }
 
   const isBuy = result.signal === "BUY";
@@ -376,16 +403,18 @@ function ScannerSignalCard({
         </button>
         {isHighConf && (
           <button
-            onClick={handleExecute}
+            onClick={handleFeedToEA}
+            disabled={feeding}
             style={{
               background: isBuy
                 ? "linear-gradient(135deg,rgba(52,211,153,0.18),rgba(0,255,255,0.12))"
                 : "linear-gradient(135deg,rgba(248,113,113,0.18),rgba(239,68,68,0.12))",
               border: isBuy ? "1px solid rgba(52,211,153,0.35)" : "1px solid rgba(248,113,113,0.35)",
+              opacity: feeding ? 0.6 : 1,
             }}
-            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-[8px] text-xs font-bold text-white hover:scale-[1.02] active:scale-[0.98] transition-all"
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-[8px] text-xs font-bold text-white hover:scale-[1.02] active:scale-[0.98] transition-all disabled:cursor-wait"
           >
-            <ExternalLink className="w-3 h-3" /> Open MT5 — {result.signal} {result.pair}
+            <Zap className="w-3 h-3" /> {feeding ? "Queuing…" : `Feed to EA — ${result.signal} ${result.pair}`}
           </button>
         )}
       </div>
