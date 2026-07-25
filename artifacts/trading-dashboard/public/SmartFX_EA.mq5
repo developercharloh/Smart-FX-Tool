@@ -10,7 +10,7 @@
 #include <Trade\Trade.mqh>
 
 //--- Input parameters
-input string InpApiUrl          = "https://smart-fx-tool.replit.app"; // SmartFX API Base URL
+input string InpApiUrl          = "https://smart-fx-tool.vercel.app"; // SmartFX API Base URL
 input double InpLotSize         = 0.01;     // Lot Size
 input int    InpMagicNumber     = 20260725; // Magic Number (unique per EA instance)
 input int    InpMinConfidence   = 80;       // Min Signal Confidence (%)
