@@ -9,6 +9,7 @@ import {
   DeleteSignalParams,
   AnalyzeSignalBody,
 } from "@workspace/api-zod";
+import WebSocket from "ws";
 
 const router = Router();
 
@@ -17,144 +18,101 @@ const router = Router();
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface Candle { open: number; high: number; low: number; close: number }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// REAL CANDLE FETCHING  (Binance for crypto · Yahoo Finance for forex/metals)
-// ─────────────────────────────────────────────────────────────────────────────
-
 interface CandleWithTime extends Candle { time: number }
 
-const _candleCache = new Map<string, { candles: CandleWithTime[]; fetchedAt: number }>();
-const CANDLE_TTL = 2 * 60 * 1000; // 2 min
+// ─────────────────────────────────────────────────────────────────────────────
+// DERIV API  (single data source — wss://ws.binaryws.com)
+// ─────────────────────────────────────────────────────────────────────────────
 
-const TF_TO_BINANCE: Record<string, string> = {
-  M1:"1m", M5:"5m", M15:"15m", M30:"30m", H1:"1h", H4:"4h", D1:"1d",
-};
-const TF_TO_YAHOO: Record<string, { interval: string; range: string }> = {
-  M1:  { interval:"1m",  range:"1d"  },
-  M5:  { interval:"5m",  range:"5d"  },
-  M15: { interval:"15m", range:"5d"  },
-  M30: { interval:"30m", range:"10d" },
-  H1:  { interval:"60m", range:"7d"  },
-  H4:  { interval:"60m", range:"30d" }, // aggregate 4×1h → 4h
-  D1:  { interval:"1d",  range:"1y"  },
-};
-
-function toBinanceSymbol(pair: string): string | null {
-  const bases = ["BTC","ETH","BNB","SOL","ADA","XRP","DOGE","DOT","LTC","AVAX","MATIC","LINK"];
-  const base = bases.find(b => pair.startsWith(b));
-  return base ? base + "USDT" : null;
-}
-
-const YAHOO_MAP: Record<string, string> = {
-  // Forex
-  EURUSD:"EURUSD=X", GBPUSD:"GBPUSD=X", USDJPY:"USDJPY=X",
-  AUDUSD:"AUDUSD=X", USDCAD:"USDCAD=X", NZDUSD:"NZDUSD=X", USDCHF:"USDCHF=X",
-  GBPJPY:"GBPJPY=X", EURJPY:"EURJPY=X", EURGBP:"EURGBP=X", AUDJPY:"AUDJPY=X",
-  GBPCAD:"GBPCAD=X", AUDCAD:"AUDCAD=X", CADCHF:"CADCHF=X", GBPCHF:"GBPCHF=X",
-  EURCHF:"EURCHF=X", GBPAUD:"GBPAUD=X", EURAUD:"EURAUD=X", AUDNZD:"AUDNZD=X",
-  USDSGD:"USDSGD=X", USDHKD:"USDHKD=X",
-  // Metals & commodities
-  XAUUSD:"GC=F", XAGUSD:"SI=F", XPTUSD:"PL=F",
-  USOIL:"CL=F", UKOIL:"BZ=F", NATGAS:"NG=F", COPPER:"HG=F",
-  // Crypto (fallback when Binance is geo-blocked)
-  BTCUSD:"BTC-USD", ETHUSD:"ETH-USD", XRPUSD:"XRP-USD",
-  LTCUSD:"LTC-USD", DOGEUSD:"DOGE-USD", DOTUSD:"DOT-USD",
-  BNBUSDT:"BNB-USD", SOLUSDT:"SOL-USD", ADAUSDT:"ADA-USD",
-  AVAXUSDT:"AVAX-USD", MATICUSDT:"MATIC-USD", LINKUSDT:"LINK-USD",
-  DXY:"DX-Y.NYB",
+/** Our pair name → Deriv symbol */
+const DERIV_MAP: Record<string, string> = {
+  // ── Forex majors ──
+  EURUSD: "frxEURUSD", GBPUSD: "frxGBPUSD", USDJPY: "frxUSDJPY",
+  AUDUSD: "frxAUDUSD", USDCAD: "frxUSDCAD", NZDUSD: "frxNZDUSD",
+  USDCHF: "frxUSDCHF",
+  // ── Forex crosses ──
+  GBPJPY: "frxGBPJPY", EURJPY: "frxEURJPY", EURGBP: "frxEURGBP",
+  AUDJPY: "frxAUDJPY", GBPCAD: "frxGBPCAD", AUDCAD: "frxAUDCAD",
+  GBPCHF: "frxGBPCHF", AUDNZD: "frxAUDNZD", CADCHF: "frxCADCHF",
+  NZDJPY: "frxNZDJPY", EURCAD: "frxEURCAD", EURCHF: "frxEURCHF",
+  EURAUD: "frxEURAUD", GBPAUD: "frxGBPAUD", CADJPY: "frxCADJPY",
+  AUDCHF: "frxAUDCHF",
+  // ── Metals ──
+  XAUUSD: "frxXAUUSD", XAGUSD: "frxXAGUSD",
+  // ── Crypto ──
+  BTCUSD: "cryBTCUSD", ETHUSD: "cryETHUSD", XRPUSD: "cryXRPUSD",
+  LTCUSD: "cryLTCUSD", DOGEUSD: "cryDOGEUSD",
+  // ── Deriv Synthetics — Volatility ──
+  R_10: "R_10", R_25: "R_25", R_50: "R_50", R_75: "R_75", R_100: "R_100",
+  // ── Deriv Synthetics — Step/1Hz ──
+  "1HZ10V": "1HZ10V", "1HZ25V": "1HZ25V", "1HZ50V": "1HZ50V",
+  "1HZ75V": "1HZ75V", "1HZ100V": "1HZ100V",
+  // ── Deriv Synthetics — Jump Diffusion ──
+  JD10: "JD10", JD25: "JD25", JD50: "JD50", JD75: "JD75", JD100: "JD100",
+  // ── Deriv Synthetics — BOOM / CRASH ──
+  BOOM500: "BOOM500", BOOM1000: "BOOM1000",
+  CRASH500: "CRASH500", CRASH1000: "CRASH1000",
 };
 
-async function _fetchBinanceCandles(symbol: string, interval: string, limit: number): Promise<CandleWithTime[]> {
-  const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
-  const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
-  if (!r.ok) throw new Error(`Binance ${r.status}`);
-  const data: any[] = await r.json();
-  return data.map(k => ({
-    time:  Math.floor(k[0] / 1000),
-    open:  parseFloat(k[1]),
-    high:  parseFloat(k[2]),
-    low:   parseFloat(k[3]),
-    close: parseFloat(k[4]),
-  }));
-}
+/** Timeframe name → Deriv granularity (seconds) */
+const TF_TO_GRAN: Record<string, number> = {
+  M1: 60, M5: 300, M15: 900, M30: 1800,
+  H1: 3600, H4: 14400, D1: 86400,
+};
 
-async function _fetchYahooCandles(ticker: string, interval: string, range: string, aggregate?: number): Promise<CandleWithTime[]> {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=${interval}&range=${range}&includePrePost=false`;
-  const r = await fetch(url, {
-    headers: { "User-Agent": "Mozilla/5.0" },
-    signal: AbortSignal.timeout(8000),
+/** Single-shot Deriv WebSocket request — opens, sends, receives one message, closes. */
+function derivRequest(payload: object): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket("wss://ws.binaryws.com/websockets/v3?app_id=1089");
+    const timer = setTimeout(() => { ws.terminate(); reject(new Error("Deriv WS timeout")); }, 12000);
+    ws.on("open",    () => ws.send(JSON.stringify(payload)));
+    ws.on("message", (data) => { clearTimeout(timer); ws.terminate(); resolve(JSON.parse(data.toString())); });
+    ws.on("error",   (e)    => { clearTimeout(timer); reject(e); });
   });
-  if (!r.ok) throw new Error(`Yahoo ${r.status}`);
-  const json = await r.json();
-  const result = json?.chart?.result?.[0];
-  if (!result) throw new Error("Yahoo: no result");
-  const timestamps: number[] = result.timestamp ?? [];
-  const q = result.indicators?.quote?.[0];
-  if (!q || !timestamps.length) throw new Error("Yahoo: empty");
-
-  let candles: CandleWithTime[] = timestamps
-    .map((t: number, i: number) => ({
-      time: t, open: q.open[i], high: q.high[i], low: q.low[i], close: q.close[i],
-    }))
-    .filter((c: CandleWithTime) => c.open != null && c.close != null && !isNaN(c.close));
-
-  // Aggregate sub-candles → larger timeframe (e.g. 4×1h → 4h)
-  if (aggregate && aggregate > 1) {
-    const agg: CandleWithTime[] = [];
-    for (let i = 0; i + aggregate <= candles.length; i += aggregate) {
-      const g = candles.slice(i, i + aggregate);
-      agg.push({
-        time:  g[0].time,
-        open:  g[0].open,
-        high:  Math.max(...g.map(c => c.high)),
-        low:   Math.min(...g.map(c => c.low)),
-        close: g[g.length - 1].close,
-      });
-    }
-    candles = agg;
-  }
-  return candles;
 }
+
+// ── Candle cache (2-minute TTL) ───────────────────────────────────────────────
+const _candleCache = new Map<string, { candles: CandleWithTime[]; fetchedAt: number }>();
+const CANDLE_TTL = 2 * 60 * 1000;
 
 async function fetchRealCandles(pair: string, timeframe: string, limit = 150): Promise<CandleWithTime[]> {
   const key = `${pair}_${timeframe}`;
   const cached = _candleCache.get(key);
   if (cached && Date.now() - cached.fetchedAt < CANDLE_TTL) return cached.candles.slice(-limit);
 
-  const isSynthetic = ["R_","1HZ","BOOM","CRASH","JD","STPIDX"].some(p => pair.startsWith(p));
-  if (isSynthetic) return [];
+  const derivSym = DERIV_MAP[pair];
+  if (!derivSym) return []; // unmapped pair → caller uses simulation
 
-  let candles: CandleWithTime[] = [];
+  const gran  = TF_TO_GRAN[timeframe] || 3600;
+  const count = Math.max(limit, 150);
 
-  // 1. Try Binance for crypto pairs
-  const bs = toBinanceSymbol(pair);
-  if (bs) {
-    try {
-      candles = await _fetchBinanceCandles(bs, TF_TO_BINANCE[timeframe] || "1h", Math.max(limit, 150));
-    } catch (e) {
-      console.warn(`[candles] Binance ${pair}: ${(e as Error).message} — falling back to Yahoo Finance`);
-    }
-  }
+  try {
+    const r = await derivRequest({
+      ticks_history:    derivSym,
+      adjust_start_time: 1,
+      count,
+      end:              "latest",
+      style:            "candles",
+      granularity:      gran,
+    });
+    if (r.error)          throw new Error(r.error.message);
+    if (!r.candles?.length) throw new Error("empty response");
 
-  // 2. Yahoo Finance — primary for forex/metals/oil, fallback for crypto
-  if (candles.length < 30) {
-    const ys = YAHOO_MAP[pair];
-    if (ys) {
-      try {
-        const yc = TF_TO_YAHOO[timeframe] || { interval:"60m", range:"7d" };
-        candles = await _fetchYahooCandles(ys, yc.interval, yc.range, timeframe === "H4" ? 4 : undefined);
-      } catch (e) {
-        console.warn(`[candles] Yahoo ${pair}: ${(e as Error).message}`);
-      }
-    }
-  }
+    const candles: CandleWithTime[] = r.candles.map((c: any) => ({
+      time:  Number(c.epoch),
+      open:  parseFloat(c.open),
+      high:  parseFloat(c.high),
+      low:   parseFloat(c.low),
+      close: parseFloat(c.close),
+    }));
 
-  if (candles.length >= 30) {
     _candleCache.set(key, { candles, fetchedAt: Date.now() });
+    console.log(`[Deriv] ${pair}/${timeframe}: ${candles.length} candles (last=${candles.at(-1)?.close})`);
     return candles.slice(-limit);
+  } catch (e) {
+    console.warn(`[Deriv] ${pair}/${timeframe}: ${(e as Error).message}`);
+    return [];
   }
-  return []; // caller falls back to simulation
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -446,18 +404,26 @@ function getSession(): { name: string; quality: "OPTIMAL" | "GOOD" | "AVOID" } {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DXY SENTIMENT  (USD pairs only)
+// USD STRENGTH  (derived from Deriv EURUSD + USDJPY candles — no DXY feed needed)
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function getDXYSentiment(pair: string): Promise<"BULLISH_USD" | "BEARISH_USD" | "NEUTRAL"> {
   const usdPairs = ["EURUSD","GBPUSD","AUDUSD","NZDUSD","USDJPY","USDCAD","USDCHF","XAUUSD"];
   if (!usdPairs.includes(pair)) return "NEUTRAL";
   try {
-    const dxy = await fetchRealCandles("DXY", "H1", 10);
-    if (dxy.length >= 5) {
-      const chg = dxy[dxy.length - 1].close - dxy[dxy.length - 5].close;
-      if (chg >  0.05) return "BULLISH_USD";
-      if (chg < -0.05) return "BEARISH_USD";
+    // Derive USD strength from two Deriv pairs:
+    //   EURUSD falling  → USD strong (negative correlation)
+    //   USDJPY rising   → USD strong (positive correlation)
+    const [eur, jpy] = await Promise.all([
+      fetchRealCandles("EURUSD", "H1", 10),
+      fetchRealCandles("USDJPY", "H1", 10),
+    ]);
+    if (eur.length >= 5 && jpy.length >= 5) {
+      const eurChg = eur.at(-1)!.close - eur.at(-5)!.close; // negative = USD strong
+      const jpyChg = jpy.at(-1)!.close - jpy.at(-5)!.close; // positive = USD strong
+      const signal = (-eurChg / 0.005 + jpyChg / 0.5) / 2;   // normalised composite
+      if (signal >  0.3) return "BULLISH_USD";
+      if (signal < -0.3) return "BEARISH_USD";
       return "NEUTRAL";
     }
   } catch { /* fall through */ }
@@ -488,29 +454,23 @@ async function getHTFBias(pair: string): Promise<"BULLISH" | "BEARISH" | "RANGIN
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LIVE PRICE FETCHING  (60-second cache, falls back to reasonable defaults)
+// LIVE PRICE FETCHING  via Deriv API  (60-second cache)
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Reasonable last-known prices — used only if Deriv fetch fails on startup */
 const FALLBACK_PRICES: Record<string, number> = {
-  // Forex
-  EURUSD: 1.0850, GBPUSD: 1.2700, USDJPY: 149.50,
-  AUDUSD: 0.6520, USDCAD: 1.3650, NZDUSD: 0.6010, USDCHF: 0.8960,
-  GBPJPY: 189.80, EURJPY: 162.30, EURGBP: 0.8530,
-  EURCHF: 0.9620, EURCAD: 1.4760, GBPCAD: 1.7160, AUDCAD: 0.8920, CADJPY: 109.60,
-  AUDNZD: 1.0850, AUDCHF: 0.5840, GBPCHF: 1.1390, NZDJPY: 89.90,
-  // Commodities
-  XAUUSD: 3300.0, XAGUSD: 33.00, XPTUSD: 1020.0,
-  USOIL: 68.50, UKOIL: 72.00, NATGAS: 3.10, COPPER: 4.50,
-  // Crypto (updated at startup; replaced each poll)
-  BTCUSD: 65000, ETHUSD: 3200, XRPUSD: 0.52, LTCUSD: 85.0,
-  DOGEUSD: 0.13, DOTUSD: 6.50, BNBUSDT: 560.0, SOLUSDT: 155.0,
-  ADAUSDT: 0.40, AVAXUSDT: 30.0, MATICUSDT: 0.55, LINKUSDT: 14.0,
-  // Deriv Synthetics (proprietary, no public feed)
-  R_10: 10245.32, R_25: 8932.15, R_50: 6543.78, R_75: 12876.44, R_100: 22345.67,
-  "1HZ10V": 3456.21, "1HZ25V": 7823.44, "1HZ50V": 5621.33, "1HZ75V": 9034.55, "1HZ100V": 18234.12,
-  BOOM300: 7823.50, BOOM500: 6543.20, BOOM1000: 5234.80,
-  CRASH300: 8912.30, CRASH500: 7234.60, CRASH1000: 5876.40,
-  JD10: 5234.12, JD25: 6891.34, JD50: 9123.56, JD75: 12456.78, JD100: 18765.43,
+  EURUSD: 1.1370, GBPUSD: 1.3320, USDJPY: 163.85,
+  AUDUSD: 0.6980, USDCAD: 1.4100, NZDUSD: 0.5790, USDCHF: 0.8185,
+  GBPJPY: 218.28, EURJPY: 186.30, EURGBP: 0.8535,
+  AUDJPY: 114.38, GBPCAD: 1.8785, AUDCAD: 0.9843, GBPCHF: 1.0902,
+  AUDNZD: 1.2058, CADCHF: 0.5804, NZDJPY: 94.85, EURCAD: 1.6033,
+  EURCHF: 0.9305, EURAUD: 1.6289, GBPAUD: 1.9084, CADJPY: 116.20, AUDCHF: 0.5712,
+  XAUUSD: 4054.0, XAGUSD: 58.20,
+  BTCUSD: 64027, ETHUSD: 1857, XRPUSD: 1.089, LTCUSD: 45.9, DOGEUSD: 0.0695,
+  R_10: 4851, R_25: 2643, R_50: 98.8, R_75: 47099, R_100: 544.6,
+  "1HZ10V": 9346, "1HZ25V": 788900, "1HZ50V": 259662, "1HZ75V": 7299, "1HZ100V": 705.9,
+  JD10: 93456, JD25: 112589, JD50: 67564, JD75: 8322, JD100: 239.8,
+  BOOM500: 5009, BOOM1000: 14360, CRASH500: 3102, CRASH1000: 5723,
 };
 
 let _priceCache: Record<string, number> = { ...FALLBACK_PRICES };
@@ -518,77 +478,37 @@ let _priceFetchedAt = 0;
 let _fetchInFlight: Promise<void> | null = null;
 
 async function _doFetchPrices(): Promise<void> {
+  const pairs = Object.keys(DERIV_MAP);
   const live: Record<string, number> = {};
 
-  // ── 1. Crypto via Binance (free, no auth) ───────────────────────────────────
-  try {
-    const symbols = encodeURIComponent(JSON.stringify([
-      "BTCUSDT","ETHUSDT","XRPUSDT","LTCUSDT","DOGEUSDT",
-      "DOTUSDT","BNBUSDT","SOLUSDT","ADAUSDT","AVAXUSDT","MATICUSDT","LINKUSDT",
-    ]));
-    const r = await fetch(`https://api.binance.com/api/v3/ticker/price?symbols=${symbols}`,
-      { signal: AbortSignal.timeout(6000) });
-    if (r.ok) {
-      const rows: Array<{ symbol: string; price: string }> = await r.json();
-      const MAP: Record<string, string> = {
-        BTCUSDT: "BTCUSD", ETHUSDT: "ETHUSD",  XRPUSDT:  "XRPUSD",
-        LTCUSDT: "LTCUSD", DOGEUSDT: "DOGEUSD", DOTUSDT:  "DOTUSD",
-        BNBUSDT: "BNBUSDT", SOLUSDT: "SOLUSDT", ADAUSDT:  "ADAUSDT",
-        AVAXUSDT: "AVAXUSDT", MATICUSDT: "MATICUSDT", LINKUSDT: "LINKUSDT",
-      };
-      for (const { symbol, price } of rows) {
-        if (MAP[symbol]) live[MAP[symbol]] = parseFloat(price);
+  // Fetch in batches of 6 to avoid too many concurrent WS connections
+  const BATCH = 6;
+  for (let i = 0; i < pairs.length; i += BATCH) {
+    const chunk = pairs.slice(i, i + BATCH);
+    const results = await Promise.allSettled(
+      chunk.map(async (pair) => {
+        const sym = DERIV_MAP[pair];
+        const r = await derivRequest({
+          ticks_history: sym,
+          count:         1,
+          end:           "latest",
+          style:         "ticks",
+        });
+        if (r.error || !r.history?.prices?.length) return null;
+        return { pair, price: parseFloat(r.history.prices.at(-1)) };
+      })
+    );
+    for (const res of results) {
+      if (res.status === "fulfilled" && res.value) {
+        live[res.value.pair] = res.value.price;
       }
     }
-  } catch { /* fall back to cached/fallback */ }
+  }
 
-  // ── 2. Forex via Frankfurter (free, no auth, end-of-day ECB rates) ──────────
-  try {
-    const r = await fetch(
-      "https://api.frankfurter.app/latest?from=EUR&to=USD,GBP,JPY,AUD,CAD,NZD,CHF",
-      { signal: AbortSignal.timeout(6000) });
-    if (r.ok) {
-      const { rates }: { rates: Record<string, number> } = await r.json();
-      const { USD: u, GBP: g, JPY: j, AUD: a, CAD: c, NZD: n, CHF: ch } = rates;
-      // Majors
-      if (u)       live.EURUSD = u;
-      if (u && g)  live.GBPUSD = u / g;
-      if (j && u)  live.USDJPY = j / u;
-      if (u && a)  live.AUDUSD = u / a;
-      if (c && u)  live.USDCAD = c / u;
-      if (u && n)  live.NZDUSD = u / n;
-      if (ch && u) live.USDCHF = ch / u;
-      // Crosses derived from EUR rates
-      if (j)       live.EURJPY = j;
-      if (g)       live.EURGBP = g;
-      if (ch)      live.EURCHF = ch;
-      if (c)       live.EURCAD = c;
-      if (j && g)  live.GBPJPY = j / g;
-      if (c && g)  live.GBPCAD = c / g;
-      if (c && a)  live.AUDCAD = c / a;
-      if (j && c)  live.CADJPY = j / c;
-      if (n && a)  live.AUDNZD = n / a;
-      if (ch && a) live.AUDCHF = ch / a;
-      if (ch && g) live.GBPCHF = ch / g;
-      if (j && n)  live.NZDJPY = j / n;
-    }
-  } catch { /* fall back to cached/fallback */ }
-
-  // ── 3. Gold via metals.live (free, no auth) ──────────────────────────────────
-  try {
-    const r = await fetch("https://api.metals.live/v1/spot/gold",
-      { signal: AbortSignal.timeout(6000) });
-    if (r.ok) {
-      const data = await r.json();
-      // Response may be [{gold: 3320.5}] or {gold: 3320.5}
-      const gold = Array.isArray(data) ? data[0]?.gold : data?.gold;
-      if (gold && !isNaN(gold)) live.XAUUSD = parseFloat(gold);
-    }
-  } catch { /* keep fallback */ }
-
-  // Merge live prices on top of existing cache (never wipe synthetics fallbacks)
+  // Merge — keep existing values for any pairs that failed
   _priceCache = { ..._priceCache, ...live };
   _priceFetchedAt = Date.now();
+  console.log(`[Deriv prices] refreshed ${Object.keys(live).length}/${pairs.length} pairs`);
 }
 
 async function getLivePrices(): Promise<Record<string, number>> {
@@ -601,7 +521,7 @@ async function getLivePrices(): Promise<Record<string, number>> {
   return _priceCache;
 }
 
-// Kick off a fetch immediately on startup so the first request doesn't block
+// Warm up prices on startup
 _doFetchPrices().catch(() => {});
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -615,7 +535,7 @@ async function generateAnalysis(pair: string, timeframe: string, basePrice: numb
   const isJpy      = pair.includes("JPY");
   const isGold     = pair === "XAUUSD";
   const isCrypto   = ["BTC","ETH","XRP","LTC","DOGE","DOT","BNB","SOL","ADA","AVAX","MATIC","LINK"].some(s => pair.startsWith(s));
-  const isCommodity = ["XAGUSD","XPTUSD","USOIL","UKOIL","NATGAS","COPPER"].includes(pair);
+  const isCommodity = ["XAGUSD"].includes(pair); // only silver available via Deriv
   const isSynthetic = ["R_","1HZ","BOOM","CRASH","JD","STPIDX"].some(p => pair.startsWith(p));
   const decimals   = isSynthetic ? 2 : isCrypto && basePrice > 100 ? 2 : isCrypto ? 4 : isJpy || isGold || isCommodity ? 2 : 5;
   const atrPct     = isSynthetic ? 0.008 : isCrypto ? 0.012 : isGold ? 0.004 : isCommodity ? 0.006 : isJpy ? 0.003 : 0.0025;
@@ -993,7 +913,7 @@ function getPairMarket(pair: string): "forex" | "crypto" | "metals" | "energy" |
   const cryptoBases = ["BTC","ETH","BNB","SOL","ADA","XRP","DOGE","DOT","LTC","AVAX","MATIC","LINK"];
   if (cryptoBases.some(b => pair.startsWith(b))) return "crypto";
   if (["XAUUSD","XAGUSD","XPTUSD"].includes(pair)) return "metals";
-  if (["USOIL","UKOIL","NATGAS","COPPER"].includes(pair)) return "energy";
+  // Energy instruments not available via Deriv ticks_history
   return "forex";
 }
 
@@ -1007,12 +927,16 @@ function isPairTradeable(pair: string, status: ReturnType<typeof getMarketStatus
 
 // ── AI Scanner — scan a watchlist, return only high-confidence signals ────────
 
+// All pairs must exist in DERIV_MAP — data fetched exclusively from Deriv API
 const SCANNER_DEFAULT_PAIRS = [
+  // Forex majors
   "EURUSD","GBPUSD","USDJPY","AUDUSD","USDCAD","NZDUSD","USDCHF",
-  "GBPJPY","EURJPY","EURGBP","AUDJPY",
+  // Forex crosses
+  "GBPJPY","EURJPY","EURGBP","AUDJPY","GBPCAD","AUDNZD",
+  // Metals
   "XAUUSD","XAGUSD",
-  "BTCUSD","ETHUSD",
-  "USOIL","UKOIL",
+  // Crypto
+  "BTCUSD","ETHUSD","XRPUSD",
 ];
 
 router.get("/market-status", (_req, res) => {
