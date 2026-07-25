@@ -8,6 +8,7 @@ import adminRouter from "./admin";
 import calendarRouter from "./calendar";
 import derivRouter from "./deriv";
 import eaRouter from "./ea";
+import mt5Router from "./mt5";
 
 const router: IRouter = Router();
 
@@ -20,5 +21,6 @@ router.use("/admin",    adminRouter);
 router.use("/calendar", calendarRouter);
 router.use("/deriv",    derivRouter);
 router.use("/ea",       eaRouter);
+router.use("/mt5",      mt5Router);
 
 export default router;
