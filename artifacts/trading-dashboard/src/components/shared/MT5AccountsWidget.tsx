@@ -29,10 +29,19 @@ export function MT5AccountsWidget() {
     setError(null);
     try {
       // ── Try EA balance first (reported by the running MT5 EA) ─────────────
-      const eaRes  = await fetch(`${BASE}/api/ea/balance`);
-      const eaData = eaRes.ok ? await eaRes.json() : [];
+      const [eaRes, mt5Res] = await Promise.all([
+        fetch(`${BASE}/api/ea/balance`),
+        fetch(`${BASE}/api/mt5/balances`),
+      ]);
+      const eaData  = eaRes.ok  ? await eaRes.json()  : [];
+      const mt5Data = mt5Res.ok ? await mt5Res.json() : [];
+      const combined = [...(Array.isArray(eaData) ? eaData : []), ...(Array.isArray(mt5Data) ? mt5Data : [])];
+      // deduplicate by login
+      const seen = new Set<string>();
+      const eaDataFinal = combined.filter(b => { if (seen.has(b.login)) return false; seen.add(b.login); return true; });
 
-      if (Array.isArray(eaData) && eaData.length > 0) {
+      if (Array.isArray(eaDataFinal) && eaDataFinal.length > 0) {
+        const eaData = eaDataFinal;
         // Map EA balance format → MT5Account format
         const mapped: MT5Account[] = eaData.map((b: any) => ({
           login:       String(b.login),
