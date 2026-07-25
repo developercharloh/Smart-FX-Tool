@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 const API  = BASE; // same origin proxy
 
-const API_URL = "https://smart-fx-tool.vercel.app";
+const API_URL = "https://smart-fx-tool.replit.app";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
