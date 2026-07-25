@@ -25,6 +25,7 @@ import { PositionSizeCalc } from "@/components/shared/PositionSizeCalc";
 import { HistoryBar } from "@/components/shared/HistoryBar";
 import { useAnalysisHistory } from "@/hooks/useAnalysisHistory";
 import { useChart } from "@/contexts/ChartContext";
+import { useDerivTradeCtx } from "@/contexts/DerivTradeContext";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS
@@ -239,6 +240,19 @@ function ScannerSignalCard({
   onFeedToEA: (r: ScanResult) => void;
   onDeepAnalyze: (pair: string, tf: string) => void;
 }) {
+  const { token, executeTrade, isTrading, lastResult, status } = useDerivTradeCtx();
+  const [executing, setExecuting] = useState(false);
+  const [cardResult, setCardResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  async function handleExecute() {
+    setExecuting(true);
+    setCardResult(null);
+    const res = await executeTrade(result.pair, result.signal as "BUY" | "SELL");
+    setCardResult(res);
+    setExecuting(false);
+    setTimeout(() => setCardResult(null), 5000);
+  }
+
   const isBuy = result.signal === "BUY";
   const isSynthetic = SYNTHETIC_SYMBOLS.has(result.pair);
   const fmt = (v: number) => fmtPriceFor(v, result.pair, isSynthetic);
@@ -344,8 +358,19 @@ function ScannerSignalCard({
         </div>
       ))}
 
+      {/* Card trade result */}
+      {cardResult && (
+        <div style={cardResult.ok
+          ? { background: "rgba(52,211,153,0.08)", border: "1px solid rgba(52,211,153,0.25)" }
+          : { background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.25)" }
+        } className="flex items-center gap-2 px-3 py-2 rounded-[8px] text-[11px] font-semibold"
+        >
+          <span className={cardResult.ok ? "text-emerald-400" : "text-rose-400"}>{cardResult.message}</span>
+        </div>
+      )}
+
       {/* Action buttons */}
-      <div className="flex gap-2 pt-1">
+      <div className="flex gap-2 pt-1 flex-wrap">
         <button
           onClick={() => onDeepAnalyze(result.pair, result.timeframe)}
           style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}
@@ -353,13 +378,32 @@ function ScannerSignalCard({
         >
           <Search className="w-3 h-3" /> Deep Analyse
         </button>
+        {isHighConf && token && (
+          <button
+            onClick={handleExecute}
+            disabled={executing}
+            style={{
+              background: executing
+                ? "rgba(251,191,36,0.1)"
+                : isBuy
+                  ? "linear-gradient(135deg,rgba(52,211,153,0.18),rgba(0,255,255,0.12))"
+                  : "linear-gradient(135deg,rgba(248,113,113,0.18),rgba(239,68,68,0.12))",
+              border: executing ? "1px solid rgba(251,191,36,0.3)" : isBuy ? "1px solid rgba(52,211,153,0.35)" : "1px solid rgba(248,113,113,0.35)",
+            }}
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-[8px] text-xs font-bold text-white hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-60 disabled:scale-100"
+          >
+            {executing
+              ? <><RefreshCw className="w-3 h-3 animate-spin" /> Executing…</>
+              : <><Zap className="w-3 h-3" /> Execute {result.signal}</>
+            }
+          </button>
+        )}
         {isHighConf && (
           <button
             onClick={() => onFeedToEA(result)}
             style={{
               background: "linear-gradient(135deg, rgba(0,255,255,0.14), rgba(139,92,246,0.14))",
               border: "1px solid rgba(0,255,255,0.3)",
-              boxShadow: "0 0 14px rgba(0,255,255,0.1)",
             }}
             className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-[8px] text-xs font-bold text-white hover:scale-[1.02] active:scale-[0.98] transition-all"
           >

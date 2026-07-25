@@ -10,6 +10,7 @@ import { Progress } from "@/components/ui/progress";
 import { useQueryClient } from "@tanstack/react-query";
 import { SessionClock } from "@/components/shared/SessionClock";
 import { DerivBalanceWidget } from "@/components/shared/DerivBalanceWidget";
+import { DerivTradePanel } from "@/components/shared/DerivTradePanel";
 import { cn } from "@/lib/utils";
 
 function computeStreak(recentActivity: any[]): { count: number; type: "WIN" | "LOSS" | null } {
@@ -54,6 +55,9 @@ export default function Dashboard() {
 
       {/* Live MT5 Account Balances */}
       <DerivBalanceWidget />
+
+      {/* Deriv API Trading */}
+      <DerivTradePanel />
 
       {/* Session Clock */}
       <SessionClock />

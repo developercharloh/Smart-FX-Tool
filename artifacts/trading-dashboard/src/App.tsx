@@ -2,6 +2,7 @@ import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { DerivTradeProvider } from "@/contexts/DerivTradeContext";
 import NotFound from "@/pages/not-found";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { ChartProvider } from "@/contexts/ChartContext";
@@ -59,9 +60,11 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <ChartProvider>
-          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-            <Router />
-          </WouterRouter>
+          <DerivTradeProvider>
+            <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+              <Router />
+            </WouterRouter>
+          </DerivTradeProvider>
         </ChartProvider>
         <Toaster />
       </TooltipProvider>
