@@ -138,7 +138,8 @@ void PollAndExecute()
    }
 
    string body = CharArrayToString(responseBytes, 0, WHOLE_ARRAY, CP_UTF8);
-   body = StringTrimRight(StringTrimLeft(body));
+   StringTrimLeft(body);
+   StringTrimRight(body);
    if (StringLen(body) == 0) return; // no pending signals
 
    if (VERBOSE) PrintFormat("[SmartFX EA] Received signal(s):\n%s", body);
