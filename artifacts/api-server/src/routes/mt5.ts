@@ -25,6 +25,14 @@ router.post("/queue", async (req, res) => {
     if (!["BUY", "SELL"].includes(signal)) {
       return res.status(400).json({ error: "signal must be BUY or SELL" });
     }
+    const MIN_CONFIDENCE = 80;
+    if (confidenceScore != null && Number(confidenceScore) < MIN_CONFIDENCE) {
+      return res.status(422).json({
+        error: `Signal confidence ${confidenceScore}% is below the minimum threshold of ${MIN_CONFIDENCE}% required to feed to MT5.`,
+        code: "CONFIDENCE_TOO_LOW",
+        minConfidence: MIN_CONFIDENCE,
+      });
+    }
     const [row] = await db
       .insert(mt5ExecutionsTable)
       .values({

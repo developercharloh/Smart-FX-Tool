@@ -47,15 +47,22 @@ function toBinanceSymbol(pair: string): string | null {
 }
 
 const YAHOO_MAP: Record<string, string> = {
+  // Forex
   EURUSD:"EURUSD=X", GBPUSD:"GBPUSD=X", USDJPY:"USDJPY=X",
   AUDUSD:"AUDUSD=X", USDCAD:"USDCAD=X", NZDUSD:"NZDUSD=X", USDCHF:"USDCHF=X",
   GBPJPY:"GBPJPY=X", EURJPY:"EURJPY=X", EURGBP:"EURGBP=X", AUDJPY:"AUDJPY=X",
   GBPCAD:"GBPCAD=X", AUDCAD:"AUDCAD=X", CADCHF:"CADCHF=X", GBPCHF:"GBPCHF=X",
   EURCHF:"EURCHF=X", GBPAUD:"GBPAUD=X", EURAUD:"EURAUD=X", AUDNZD:"AUDNZD=X",
   USDSGD:"USDSGD=X", USDHKD:"USDHKD=X",
+  // Metals & commodities
   XAUUSD:"GC=F", XAGUSD:"SI=F", XPTUSD:"PL=F",
   USOIL:"CL=F", UKOIL:"BZ=F", NATGAS:"NG=F", COPPER:"HG=F",
-  DXY:"DX=F",
+  // Crypto (fallback when Binance is geo-blocked)
+  BTCUSD:"BTC-USD", ETHUSD:"ETH-USD", XRPUSD:"XRP-USD",
+  LTCUSD:"LTC-USD", DOGEUSD:"DOGE-USD", DOTUSD:"DOT-USD",
+  BNBUSDT:"BNB-USD", SOLUSDT:"SOL-USD", ADAUSDT:"ADA-USD",
+  AVAXUSDT:"AVAX-USD", MATICUSDT:"MATIC-USD", LINKUSDT:"LINK-USD",
+  DXY:"DX-Y.NYB",
 };
 
 async function _fetchBinanceCandles(symbol: string, interval: string, limit: number): Promise<CandleWithTime[]> {
@@ -119,19 +126,28 @@ async function fetchRealCandles(pair: string, timeframe: string, limit = 150): P
   if (isSynthetic) return [];
 
   let candles: CandleWithTime[] = [];
-  try {
-    const bs = toBinanceSymbol(pair);
-    if (bs) {
+
+  // 1. Try Binance for crypto pairs
+  const bs = toBinanceSymbol(pair);
+  if (bs) {
+    try {
       candles = await _fetchBinanceCandles(bs, TF_TO_BINANCE[timeframe] || "1h", Math.max(limit, 150));
-    } else {
-      const ys = YAHOO_MAP[pair];
-      if (ys) {
+    } catch (e) {
+      console.warn(`[candles] Binance ${pair}: ${(e as Error).message} — falling back to Yahoo Finance`);
+    }
+  }
+
+  // 2. Yahoo Finance — primary for forex/metals/oil, fallback for crypto
+  if (candles.length < 30) {
+    const ys = YAHOO_MAP[pair];
+    if (ys) {
+      try {
         const yc = TF_TO_YAHOO[timeframe] || { interval:"60m", range:"7d" };
         candles = await _fetchYahooCandles(ys, yc.interval, yc.range, timeframe === "H4" ? 4 : undefined);
+      } catch (e) {
+        console.warn(`[candles] Yahoo ${pair}: ${(e as Error).message}`);
       }
     }
-  } catch (e) {
-    console.warn(`[candles] ${pair}/${timeframe}:`, (e as Error).message);
   }
 
   if (candles.length >= 30) {
@@ -948,6 +964,56 @@ router.post("/mtf-bias", async (req, res) => {
     bearCount >= 3 ? "STRONG_BEAR" :
     bearCount === 2 ? "MILD_BEAR" : "MIXED";
   res.json({ pair, timeframes: results, alignment });
+});
+
+// ── AI Scanner — scan a watchlist, return only high-confidence signals ────────
+const SCANNER_DEFAULT_PAIRS = [
+  "EURUSD","GBPUSD","USDJPY","AUDUSD","USDCAD","NZDUSD","USDCHF",
+  "GBPJPY","EURJPY","EURGBP","AUDJPY",
+  "XAUUSD","XAGUSD",
+  "BTCUSD","ETHUSD",
+  "USOIL","UKOIL",
+];
+
+router.post("/scan", async (req, res) => {
+  const {
+    pairs      = SCANNER_DEFAULT_PAIRS,
+    timeframes = ["H1"],
+    minConfidence = 80,
+  } = req.body;
+
+  if (!Array.isArray(pairs) || pairs.length === 0 || pairs.length > 30)
+    return res.status(400).json({ error: "pairs must be a non-empty array (max 30)" });
+  if (!Array.isArray(timeframes) || timeframes.length === 0)
+    return res.status(400).json({ error: "timeframes required" });
+
+  const prices = await getLivePrices();
+
+  // Run every pair × timeframe combo in parallel
+  const tasks = (pairs as string[]).flatMap(pair =>
+    (timeframes as string[]).map(tf => ({ pair, tf }))
+  );
+
+  const settled = await Promise.allSettled(
+    tasks.map(async ({ pair, tf }) => {
+      const basePrice = prices[pair] ?? FALLBACK_PRICES[pair] ?? 1.0;
+      return generateAnalysis(pair, tf, basePrice);
+    })
+  );
+
+  const signals = settled
+    .filter((r): r is PromiseFulfilledResult<any> => r.status === "fulfilled")
+    .map(r => r.value)
+    .filter(a => a.signal !== "NEUTRAL" && a.confidenceScore >= Number(minConfidence))
+    .sort((a, b) => b.confidenceScore - a.confidenceScore);
+
+  return res.json({
+    signals,
+    scannedAt: Date.now(),
+    pairsScanned: pairs.length,
+    timeframesScanned: timeframes,
+    totalFound: signals.length,
+  });
 });
 
 // ── Auto-resolve ACTIVE signals by age + confidence ───────────────────────────
