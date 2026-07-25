@@ -8,7 +8,7 @@ import WebSocket from "ws";
 
 const router = Router();
 
-const DERIV_APP_ID = 1089;
+const DERIV_APP_ID = 1;
 const WS_URL       = `wss://ws.binaryws.com/websockets/v3?app_id=${DERIV_APP_ID}`;
 
 const PAIR_TO_SYMBOL: Record<string, string> = {
@@ -104,6 +104,84 @@ router.get("/balance", async (_req, res) => {
       });
     });
     return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/deriv/mt5-accounts ──────────────────────────────────────────────
+// Returns Real & Demo MT5 STD account balances via mt5_login_list + mt5_get_settings
+
+interface MT5Account {
+  login: string;
+  balance: number;
+  currency: string;
+  accountType: "real" | "demo";
+  name: string;
+  server: string;
+}
+
+router.get("/mt5-accounts", async (_req, res) => {
+  try {
+    const accounts = await new Promise<MT5Account[]>((resolve, reject) => {
+      const token = getToken();
+      if (!token) { reject(new Error("DERIV_API_TOKEN not configured")); return; }
+
+      const ws = new WebSocket(WS_URL);
+      const timeout = setTimeout(() => { ws.terminate(); reject(new Error("Deriv WebSocket timeout (20s)")); }, 20000);
+
+      let loginList: string[] = [];
+      let received = 0;
+      const results: MT5Account[] = [];
+
+      const done = (v: MT5Account[]) => { clearTimeout(timeout); ws.terminate(); resolve(v); };
+      const fail = (e: Error) => { clearTimeout(timeout); ws.terminate(); reject(e); };
+
+      ws.on("error", fail);
+      ws.on("open", () => ws.send(JSON.stringify({ authorize: token })));
+
+      ws.on("message", (raw) => {
+        try {
+          const msg = JSON.parse(raw.toString());
+
+          if (msg.error) {
+            fail(new Error(`Deriv API: ${msg.error.message ?? JSON.stringify(msg.error)}`));
+            return;
+          }
+
+          if (msg.msg_type === "authorize") {
+            ws.send(JSON.stringify({ mt5_login_list: 1 }));
+          }
+
+          if (msg.msg_type === "mt5_login_list") {
+            const list: any[] = msg.mt5_login_list ?? [];
+            if (list.length === 0) { done([]); return; }
+            loginList = list.map((a: any) => String(a.login));
+            for (const login of loginList) {
+              ws.send(JSON.stringify({ mt5_get_settings: 1, login }));
+            }
+          }
+
+          if (msg.msg_type === "mt5_get_settings") {
+            const s = msg.mt5_get_settings ?? {};
+            results.push({
+              login:       String(s.login ?? ""),
+              balance:     Number(s.balance ?? 0),
+              currency:    String(s.currency ?? "USD"),
+              accountType: (s.account_type === "demo" ? "demo" : "real") as "real" | "demo",
+              name:        String(s.name ?? ""),
+              server:      String(s.server ?? ""),
+            });
+            received++;
+            if (received >= loginList.length) done(results);
+          }
+        } catch (e: any) {
+          fail(new Error(`Parse error: ${e.message}`));
+        }
+      });
+    });
+
+    return res.json(accounts);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

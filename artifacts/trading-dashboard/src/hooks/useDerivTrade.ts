@@ -36,20 +36,12 @@ export interface TradeResult {
 
 export type TradeStatus = "idle" | "opened";
 
-/** Build the Deriv DTrader deep-link URL */
-export function buildDerivTradeUrl(pair: string, direction: "BUY" | "SELL", stake: number, multiplier: number): string | null {
+/** Build the Deriv MT5 WebTrader URL (user places the CFD order manually) */
+export function buildDerivTradeUrl(pair: string, direction: "BUY" | "SELL", _stake: number, _multiplier: number): string | null {
   const symbol = PAIR_TO_SYMBOL[pair.toUpperCase()];
   if (!symbol) return null;
-  const contractType = direction === "BUY" ? "MULTUP" : "MULTDOWN";
-  const params = new URLSearchParams({
-    contract_type: contractType,
-    symbol,
-    amount:      String(stake),
-    multiplier:  String(multiplier),
-    basis:       "stake",
-    currency:    "USD",
-  });
-  return `https://app.deriv.com/dtrader?${params.toString()}`;
+  // MT5 web terminal — no URL params for pre-filling orders, user places it manually
+  return `https://app.deriv.com/dmt5/`;
 }
 
 export function useDerivTrade() {
@@ -80,7 +72,7 @@ export function useDerivTrade() {
     }
     window.open(url, "_blank", "noopener,noreferrer");
     setStatus("opened");
-    const r = { ok: true, message: `Opened Deriv — confirm ${direction} ${pair}` };
+    const r = { ok: true, message: `Deriv MT5 opened — place ${direction} ${pair} manually` };
     setResult(r);
     setTimeout(() => setStatus("idle"), 3000);
     return r;

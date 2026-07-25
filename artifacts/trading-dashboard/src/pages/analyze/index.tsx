@@ -385,7 +385,7 @@ function ScannerSignalCard({
             }}
             className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-[8px] text-xs font-bold text-white hover:scale-[1.02] active:scale-[0.98] transition-all"
           >
-            <ExternalLink className="w-3 h-3" /> Trade {result.signal} on Deriv
+            <ExternalLink className="w-3 h-3" /> Open MT5 — {result.signal} {result.pair}
           </button>
         )}
       </div>
