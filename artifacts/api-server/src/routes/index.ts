@@ -6,6 +6,7 @@ import newsRouter from "./news";
 import authRouter from "./auth";
 import adminRouter from "./admin";
 import calendarRouter from "./calendar";
+import mt5Router from "./mt5";
 
 const router: IRouter = Router();
 
@@ -16,5 +17,6 @@ router.use("/news", newsRouter);
 router.use("/auth", authRouter);
 router.use("/admin", adminRouter);
 router.use("/calendar", calendarRouter);
+router.use("/mt5", mt5Router);
 
 export default router;

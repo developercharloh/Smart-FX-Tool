@@ -6,7 +6,10 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Zap, Activity, ShieldAlert, ArrowRight, BarChart2,
   Clock, Layers, Target, BarChart, Waves, ChevronDown,
+  Terminal, Download, Copy, Check, ChevronRight, X,
 } from "lucide-react";
+import { useQueueMT5 } from "@/hooks/useMT5";
+import { MT5ExecutionsPanel } from "@/components/shared/MT5ExecutionsPanel";
 import { ConfidenceGauge } from "@/components/shared/ConfidenceGauge";
 import { TrendBadge } from "@/components/shared/TrendBadge";
 import { Badge } from "@/components/ui/badge";
@@ -161,6 +164,12 @@ export default function Analyze() {
   const { history, push: pushHistory, clear: clearHistory } = useAnalysisHistory();
   const [historyResult, setHistoryResult] = useState<any>(null);
 
+  const [mt5Modal, setMT5Modal]     = useState(false);
+  const [mt5Risk, setMT5Risk]       = useState("1.0");
+  const [copied, setCopied]         = useState(false);
+  const [eaSetupOpen, setEaSetupOpen] = useState(false);
+  const queueMT5 = useQueueMT5();
+
   const isSynthetic = pair ? SYNTHETIC_SYMBOLS.has(pair) : false;
 
   function fmtPrice(v: number) {
@@ -216,10 +225,112 @@ export default function Analyze() {
     <div className="space-y-6 max-w-7xl mx-auto">
 
       {/* ── Page header ───────────────────────────────────────────────────────── */}
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight text-foreground font-mono">AI Scanner</h1>
-        <p className="text-muted-foreground mt-1">Select an instrument and timeframe, then run AI analysis.</p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-foreground font-mono">AI Scanner</h1>
+          <p className="text-muted-foreground mt-1">Select an instrument and timeframe, then run AI analysis.</p>
+        </div>
+        <button
+          onClick={() => setEaSetupOpen(v => !v)}
+          style={eaSetupOpen
+            ? { background: "rgba(0,255,255,0.08)", border: "1px solid rgba(0,255,255,0.25)", color: "#00e5e5" }
+            : { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#64748b" }
+          }
+          className="flex items-center gap-2 px-4 py-2 rounded-[10px] text-sm font-semibold transition-all hover:border-cyan-400/25 hover:text-white shrink-0"
+        >
+          <Terminal className="w-4 h-4" />
+          MT5 EA Setup
+          <ChevronRight className={`w-3.5 h-3.5 transition-transform ${eaSetupOpen ? "rotate-90" : ""}`} />
+        </button>
       </div>
+
+      {/* ── EA Setup Guide (collapsible) ──────────────────────────────────────── */}
+      {eaSetupOpen && (
+        <div
+          style={{
+            background: "rgba(11,15,25,0.8)",
+            border: "1px solid rgba(0,255,255,0.12)",
+            backdropFilter: "blur(16px)",
+          }}
+          className="rounded-[16px] p-5 space-y-4"
+        >
+          <div className="flex items-center gap-2 mb-1">
+            <Terminal className="w-4 h-4 text-cyan-400" />
+            <h3 className="text-sm font-bold text-white">Expert Advisor Setup</h3>
+            <span className="text-[11px] text-slate-500 ml-1">— one-time, takes ~2 min</span>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-4">
+            {/* Steps */}
+            <div className="space-y-3">
+              {[
+                { n: 1, text: "Download the EA file and copy it to your MT5 folder: MQL5\\Experts\\" },
+                { n: 2, text: "Open MetaEditor (F4 in MT5), find SmartFX_EA.mq5, and compile it (F7)" },
+                { n: 3, text: "In MT5 → Tools → Options → Expert Advisors: enable Allow automated trading and Allow WebRequest" },
+                { n: 4, text: "Add this URL to the WebRequest whitelist: smart-fx-tool.replit.app" },
+                { n: 5, text: "Attach the EA to any chart. Set EA_KEY to match the key shown here, set your risk %" },
+              ].map(({ n, text }) => (
+                <div key={n} className="flex gap-3">
+                  <span
+                    style={{ background: "rgba(0,255,255,0.08)", border: "1px solid rgba(0,255,255,0.15)", color: "#00e5e5" }}
+                    className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 mt-0.5"
+                  >
+                    {n}
+                  </span>
+                  <p className="text-sm text-slate-400 leading-relaxed">{text}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Download + Key */}
+            <div className="space-y-3">
+              <a
+                href={`${import.meta.env.BASE_URL ?? "/"}SmartFX_EA.mq5`}
+                download="SmartFX_EA.mq5"
+                style={{
+                  background: "linear-gradient(135deg, rgba(0,255,255,0.12), rgba(139,92,246,0.12))",
+                  border: "1px solid rgba(0,255,255,0.3)",
+                  boxShadow: "0 0 20px rgba(0,255,255,0.08)",
+                }}
+                className="flex items-center justify-center gap-2 w-full py-3 rounded-[10px] text-sm font-bold text-white hover:scale-[1.02] active:scale-[0.99] transition-all"
+              >
+                <Download className="w-4 h-4 text-cyan-400" />
+                Download SmartFX_EA.mq5
+              </a>
+
+              <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }} className="rounded-[10px] p-4 space-y-2">
+                <p className="text-[11px] font-bold uppercase tracking-widest text-slate-500">EA Key (paste into MT5)</p>
+                <div className="flex items-center gap-2">
+                  <code
+                    style={{ background: "rgba(0,255,255,0.05)", border: "1px solid rgba(0,255,255,0.15)" }}
+                    className="flex-1 font-mono text-cyan-400 text-sm px-3 py-2 rounded-[7px]"
+                  >
+                    smartfx-ea-2025
+                  </code>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText("smartfx-ea-2025");
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 2000);
+                    }}
+                    style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}
+                    className="p-2 rounded-[7px] text-slate-500 hover:text-cyan-400 hover:border-cyan-400/25 transition-all"
+                  >
+                    {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-600">This key authenticates the EA with your dashboard. Do not share it publicly.</p>
+              </div>
+
+              <div style={{ background: "rgba(255,200,0,0.04)", border: "1px solid rgba(255,200,0,0.12)" }} className="rounded-[10px] p-3">
+                <p className="text-xs text-amber-400/80">
+                  <span className="font-bold">Polling interval:</span> the EA checks for new signals every 5 seconds. Make sure your MT5 terminal stays open and connected.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Instrument + Timeframe Selector ──────────────────────────────────── */}
       <div
@@ -664,15 +775,162 @@ export default function Analyze() {
               </div>
             </div>
 
-            {/* Save */}
+            {/* Action buttons */}
             {result.signal !== "NEUTRAL" && (
-              <Button onClick={handleSave} className="w-full font-bold" size="lg" disabled={createMutation.isPending}>
-                {createMutation.isPending ? "Saving..." : "Save Signal"} <ArrowRight className="w-4 h-4 ml-2" />
-              </Button>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <Button onClick={handleSave} className="flex-1 font-bold" size="lg" disabled={createMutation.isPending}>
+                  {createMutation.isPending ? "Saving..." : "Save Signal"} <ArrowRight className="w-4 h-4 ml-2" />
+                </Button>
+                <button
+                  onClick={() => setMT5Modal(true)}
+                  style={{
+                    background: "linear-gradient(135deg, rgba(0,255,255,0.12), rgba(139,92,246,0.12))",
+                    border: "1px solid rgba(0,255,255,0.3)",
+                    boxShadow: "0 0 20px rgba(0,255,255,0.08)",
+                  }}
+                  className="flex-1 flex items-center justify-center gap-2 px-6 py-3 rounded-lg text-sm font-bold text-white hover:scale-[1.02] active:scale-[0.98] transition-all duration-200"
+                >
+                  <Terminal className="w-4 h-4 text-cyan-400" />
+                  Send to MT5
+                </button>
+              </div>
             )}
           </CardContent>
         </Card>
       )}
+
+      {/* ── MT5 Executions Panel ──────────────────────────────────────────────── */}
+      <MT5ExecutionsPanel />
+
+      {/* ── MT5 Confirmation Modal ────────────────────────────────────────────── */}
+      {mt5Modal && result && result.signal !== "NEUTRAL" && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(8px)" }}
+          onClick={e => { if (e.target === e.currentTarget) setMT5Modal(false); }}
+        >
+          <div
+            style={{
+              background: "rgba(11,15,25,0.97)",
+              border: "1px solid rgba(0,255,255,0.15)",
+              boxShadow: "0 24px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(0,255,255,0.05)",
+            }}
+            className="rounded-[20px] p-6 w-full max-w-md space-y-5"
+          >
+            {/* Header */}
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <Terminal className="w-5 h-5 text-cyan-400" />
+                  <h3 className="text-lg font-bold text-white">Send to MT5</h3>
+                </div>
+                <p className="text-sm text-slate-500">Your Expert Advisor will execute this trade within {"{"}POLL_SECONDS{"}"} seconds of confirmation.</p>
+              </div>
+              <button onClick={() => setMT5Modal(false)} className="p-1.5 rounded-lg text-slate-600 hover:text-white hover:bg-white/5 transition-all">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Trade summary */}
+            <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }} className="rounded-[12px] p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <span
+                  style={result.signal === "BUY"
+                    ? { background: "rgba(52,211,153,0.08)", border: "1px solid rgba(52,211,153,0.2)", color: "#34d399" }
+                    : { background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.2)", color: "#f87171" }
+                  }
+                  className="font-mono text-sm font-bold px-3 py-1 rounded-[7px]"
+                >
+                  {result.signal}
+                </span>
+                <span className="font-mono font-bold text-white">{result.pair}</span>
+                <span className="text-slate-500 font-mono text-sm">· {result.timeframe}</span>
+              </div>
+              <div className="grid grid-cols-3 gap-3 text-center text-xs">
+                <div style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }} className="rounded-[8px] p-2.5">
+                  <div className="text-slate-500 mb-1">Entry</div>
+                  <div className="font-mono font-bold text-white">{fmtPrice(result.entry)}</div>
+                </div>
+                <div style={{ background: "rgba(248,113,113,0.04)", border: "1px solid rgba(248,113,113,0.15)" }} className="rounded-[8px] p-2.5">
+                  <div className="text-rose-500/70 mb-1">Stop Loss</div>
+                  <div className="font-mono font-bold text-rose-400">{fmtPrice(result.stopLoss)}</div>
+                </div>
+                <div style={{ background: "rgba(52,211,153,0.04)", border: "1px solid rgba(52,211,153,0.15)" }} className="rounded-[8px] p-2.5">
+                  <div className="text-emerald-500/70 mb-1">Take Profit</div>
+                  <div className="font-mono font-bold text-emerald-400">{fmtPrice(result.takeProfit)}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Risk % input */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold uppercase tracking-widest text-slate-500">Risk per trade (%)</label>
+              <div className="flex items-center gap-2">
+                {["0.5", "1.0", "1.5", "2.0"].map(v => (
+                  <button
+                    key={v}
+                    onClick={() => setMT5Risk(v)}
+                    style={mt5Risk === v
+                      ? { background: "rgba(0,255,255,0.1)", border: "1px solid rgba(0,255,255,0.3)", color: "#00ffff" }
+                      : { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#94a3b8" }
+                    }
+                    className="flex-1 py-2 rounded-[8px] text-sm font-bold transition-all hover:border-cyan-400/25"
+                  >
+                    {v}%
+                  </button>
+                ))}
+                <input
+                  type="number"
+                  value={mt5Risk}
+                  onChange={e => setMT5Risk(e.target.value)}
+                  min="0.1"
+                  max="10"
+                  step="0.1"
+                  style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}
+                  className="w-20 px-3 py-2 rounded-[8px] text-sm font-mono text-white text-center focus:outline-none focus:border-cyan-400/40"
+                />
+              </div>
+              <p className="text-[11px] text-slate-600">The EA calculates exact lot size from your live account balance × risk %.</p>
+            </div>
+
+            {/* Confirm button */}
+            <button
+              disabled={queueMT5.isPending}
+              onClick={() => {
+                queueMT5.mutate({
+                  pair: result.pair,
+                  signal: result.signal as "BUY" | "SELL",
+                  timeframe: result.timeframe,
+                  entry: result.entry,
+                  stopLoss: result.stopLoss,
+                  takeProfit: result.takeProfit,
+                  riskPercent: parseFloat(mt5Risk) || 1.0,
+                  confidenceScore: result.confidenceScore,
+                  riskRewardRatio: result.riskRewardRatio,
+                }, {
+                  onSuccess: () => {
+                    setMT5Modal(false);
+                    toast({ title: "Sent to MT5", description: "Your EA will execute this trade within a few seconds." });
+                  },
+                  onError: (err: any) => toast({ variant: "destructive", title: "Failed to queue", description: err.message }),
+                });
+              }}
+              style={{
+                background: queueMT5.isPending ? "rgba(255,255,255,0.04)" : "linear-gradient(135deg, rgba(0,255,255,0.15), rgba(139,92,246,0.15))",
+                border: "1px solid rgba(0,255,255,0.3)",
+                boxShadow: queueMT5.isPending ? "none" : "0 0 20px rgba(0,255,255,0.1)",
+              }}
+              className="w-full py-3.5 rounded-[12px] text-sm font-bold text-white disabled:opacity-50 flex items-center justify-center gap-2 hover:scale-[1.01] active:scale-[0.99] transition-all duration-200"
+            >
+              {queueMT5.isPending
+                ? <><Activity className="w-4 h-4 animate-spin" /> Queueing…</>
+                : <><Terminal className="w-4 h-4 text-cyan-400" /> Confirm &amp; Send to MT5</>
+              }
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
