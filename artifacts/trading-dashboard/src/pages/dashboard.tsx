@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
 import { useQueryClient } from "@tanstack/react-query";
 import { SessionClock } from "@/components/shared/SessionClock";
+import { DerivBalanceWidget } from "@/components/shared/DerivBalanceWidget";
 import { cn } from "@/lib/utils";
 
 function computeStreak(recentActivity: any[]): { count: number; type: "WIN" | "LOSS" | null } {
@@ -50,6 +51,9 @@ export default function Dashboard() {
           </Button>
         </Link>
       </div>
+
+      {/* Live MT5 Account Balances */}
+      <DerivBalanceWidget />
 
       {/* Session Clock */}
       <SessionClock />

@@ -3,6 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Loader2, Activity, ArrowUpRight, ArrowDownRight, Target, BarChart, Zap, History } from "lucide-react";
 import { Link } from "wouter";
 import { cn } from "@/lib/utils";
+import { DerivBalanceWidget } from "@/components/shared/DerivBalanceWidget";
 
 export default function Dashboard() {
   const { data: summary, isLoading, error } = useGetDashboardSummary();
@@ -25,6 +26,8 @@ export default function Dashboard() {
 
   return (
     <div className="p-6 md:p-10 space-y-8 max-w-7xl mx-auto">
+
+      {/* Page header */}
       <div className="flex items-center justify-between border-b border-border pb-4">
         <div>
           <h1 className="text-2xl font-bold tracking-widest uppercase flex items-center gap-2">
@@ -39,7 +42,10 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* KPI Grid */}
+      {/* ── MT5 Live Account Balances ──────────────────────────────────── */}
+      <DerivBalanceWidget />
+
+      {/* ── KPI Grid ──────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <KpiCard title="Active Signals" value={summary.activeSignals} icon={Zap} valueClass="text-primary" />
         <KpiCard title="Total Signals" value={summary.totalSignals} icon={BarChart} />
@@ -84,7 +90,7 @@ export default function Dashboard() {
             </h2>
             <Link href="/signals" className="text-xs font-mono text-primary hover:underline uppercase">View All</Link>
           </div>
-          
+
           <div className="bg-card/30 rounded-sm border border-border/50 divide-y divide-border/50 overflow-hidden">
             {summary.recentActivity.map((signal) => (
               <Link key={signal.id} href={`/signals/${signal.id}`}>
@@ -104,21 +110,21 @@ export default function Dashboard() {
                         </span>
                       </div>
                       <div className="text-xs text-muted-foreground font-mono mt-1 uppercase">
-                        {signal.structureType !== "NONE" && `${signal.structureType} • `} 
+                        {signal.structureType !== "NONE" && `${signal.structureType} • `}
                         {signal.trend} TREND
                       </div>
                     </div>
                   </div>
-                  
+
                   <div className="text-right">
                     <div className="font-mono text-sm">
                       Entry: <span className="text-foreground">{signal.entry}</span>
                     </div>
                     <div className="flex items-center justify-end gap-2 mt-1">
                       <div className="w-16 h-1.5 bg-secondary rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-primary" 
-                          style={{ width: `${signal.confidenceScore}%` }} 
+                        <div
+                          className="h-full bg-primary"
+                          style={{ width: `${signal.confidenceScore}%` }}
                         />
                       </div>
                       <span className="text-xs font-mono text-muted-foreground">{signal.confidenceScore}%</span>
@@ -137,7 +143,7 @@ export default function Dashboard() {
   );
 }
 
-function KpiCard({ title, value, icon: Icon, valueClass }: { title: string, value: string | number, icon: any, valueClass?: string }) {
+function KpiCard({ title, value, icon: Icon, valueClass }: { title: string; value: string | number; icon: any; valueClass?: string }) {
   return (
     <Card className="p-4 bg-card/40 border-border/50 backdrop-blur-sm">
       <div className="flex items-start justify-between">

@@ -1,16 +1,71 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { mt5ExecutionsTable } from "@workspace/db";
-import { eq, desc, and, inArray } from "drizzle-orm";
+import { eq, desc, inArray } from "drizzle-orm";
 
 const router = Router();
 
 // Simple EA key auth — set MT5_EA_KEY env var to override the default
 const EA_KEY = process.env.MT5_EA_KEY ?? "smartfx-ea-2025";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// In-memory account balance cache  (EA heartbeat fills this)
+// Structure: one slot per accountType (REAL / DEMO)
+// ─────────────────────────────────────────────────────────────────────────────
+interface AccountSnapshot {
+  accountType: "REAL" | "DEMO";
+  balance:     number;
+  equity:      number;
+  freeMargin:  number;
+  currency:    string;
+  login:       number;
+  name:        string;
+  broker:      string;
+  reportedAt:  number; // Unix ms
+}
+const _balanceCache = new Map<"REAL" | "DEMO", AccountSnapshot>();
+
 function checkEAKey(key: string | undefined): boolean {
   return key === EA_KEY;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/mt5/balance-report?key=XXX
+// EA calls this on every poll to push live account state.
+// ─────────────────────────────────────────────────────────────────────────────
+router.post("/balance-report", (req, res) => {
+  if (!checkEAKey(req.query.key as string))
+    return res.status(401).json({ error: "Invalid EA key" });
+
+  const { accountType, balance, equity, freeMargin, currency, login, name = "", broker = "" } = req.body;
+
+  if (!["REAL", "DEMO"].includes(accountType) || balance == null)
+    return res.status(400).json({ error: "accountType (REAL|DEMO) and balance required" });
+
+  _balanceCache.set(accountType as "REAL" | "DEMO", {
+    accountType,
+    balance:    Number(balance),
+    equity:     Number(equity   ?? balance),
+    freeMargin: Number(freeMargin ?? 0),
+    currency:   String(currency ?? "USD"),
+    login:      Number(login ?? 0),
+    name:       String(name),
+    broker:     String(broker),
+    reportedAt: Date.now(),
+  });
+
+  return res.json({ ok: true });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/mt5/balance
+// Dashboard polls this for EA-reported account state.
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/balance", (_req, res) => {
+  const real = _balanceCache.get("REAL") ?? null;
+  const demo = _balanceCache.get("DEMO") ?? null;
+  return res.json({ real, demo, fetchedAt: Date.now() });
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/mt5/queue

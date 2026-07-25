@@ -2,36 +2,39 @@
 //|  SmartFX_EA.mq5                                                  |
 //|  Polls smart-fx-tool.replit.app for confirmed signals and        |
 //|  executes them in MT5 with risk-based lot sizing.                |
+//|  Also reports live account balance to the SmartFX dashboard.     |
 //|                                                                  |
-//|  SETUP:                                                          |
+//|  SETUP (Deriv MT5):                                              |
 //|  1. Copy this file to MQL5\Experts\SmartFX_EA.mq5               |
 //|  2. Compile in MetaEditor (F7)                                   |
-//|  3. Attach to ANY chart (e.g. EURUSD H1)                        |
-//|  4. In MT5 → Tools → Options → Expert Advisors:                 |
+//|  3. Deriv MT5 → Tools → Options → Expert Advisors:              |
 //|       ✓ Allow automated trading                                  |
 //|       ✓ Allow WebRequest for listed URL                         |
 //|       Add: https://smart-fx-tool.replit.app                     |
+//|  4. Attach to ANY chart (Volatility, Forex, or Crypto)          |
 //|  5. Set EA_KEY to match your dashboard setting                   |
 //+------------------------------------------------------------------+
 #property copyright "SmartFX"
 #property link      "https://smart-fx-tool.replit.app"
-#property version   "1.00"
+#property version   "1.10"
 #property strict
 
 #include <Trade\Trade.mqh>
 
 //--- Inputs
-input string SERVER_URL    = "https://smart-fx-tool.replit.app"; // API server URL
-input string EA_KEY        = "smartfx-ea-2025";                  // EA key (must match dashboard)
-input double RISK_PERCENT  = 1.0;                                 // Risk % per trade
-input int    POLL_SECONDS  = 5;                                   // Poll interval (seconds)
-input int    MAGIC_NUMBER  = 20250001;                            // Magic number for trades
-input int    SLIPPAGE      = 20;                                  // Max slippage (points)
-input bool   VERBOSE       = true;                                // Print debug info
+input string SERVER_URL        = "https://smart-fx-tool.replit.app"; // API server URL
+input string EA_KEY            = "smartfx-ea-2025";                  // EA key (must match dashboard)
+input double RISK_PERCENT      = 1.0;                                 // Risk % per trade
+input int    POLL_SECONDS      = 5;                                   // Poll interval (seconds)
+input int    MAGIC_NUMBER      = 20250001;                            // Magic number for trades
+input int    SLIPPAGE          = 20;                                  // Max slippage (points)
+input bool   VERBOSE           = true;                                // Print debug info
+input int    BALANCE_REPORT_EVERY = 3;                                // Report balance every N polls
 
 //--- Internal
 CTrade trade;
-bool   initialized = false;
+bool   initialized  = false;
+int    pollCount    = 0;
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -43,8 +46,11 @@ int OnInit()
    EventSetTimer(POLL_SECONDS);
    initialized = true;
 
-   PrintFormat("[SmartFX EA] Started. Polling %s every %ds  |  Risk: %.1f%%  |  Magic: %d",
+   PrintFormat("[SmartFX EA] v1.10 Started. Polling %s every %ds  |  Risk: %.1f%%  |  Magic: %d",
                SERVER_URL, POLL_SECONDS, RISK_PERCENT, MAGIC_NUMBER);
+
+   // Report balance immediately on attach
+   ReportAccountBalance();
    return INIT_SUCCEEDED;
 }
 
@@ -59,7 +65,56 @@ void OnDeinit(const int reason)
 void OnTimer()
 {
    if (!initialized) return;
+   pollCount++;
+
+   // Report balance every N polls (default every 3 polls = 15 seconds)
+   if (pollCount % BALANCE_REPORT_EVERY == 0)
+      ReportAccountBalance();
+
    PollAndExecute();
+}
+
+//+------------------------------------------------------------------+
+//| Push live account balance to the SmartFX dashboard              |
+//+------------------------------------------------------------------+
+void ReportAccountBalance()
+{
+   ENUM_ACCOUNT_TRADE_MODE mode = (ENUM_ACCOUNT_TRADE_MODE)AccountInfoInteger(ACCOUNT_TRADE_MODE);
+   string accType  = (mode == ACCOUNT_TRADE_MODE_REAL) ? "REAL" : "DEMO";
+   double bal      = AccountInfoDouble(ACCOUNT_BALANCE);
+   double equity   = AccountInfoDouble(ACCOUNT_EQUITY);
+   double freeMgn  = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+   string ccy      = AccountInfoString(ACCOUNT_CURRENCY);
+   long   login    = AccountInfoInteger(ACCOUNT_LOGIN);
+   string company  = AccountInfoString(ACCOUNT_COMPANY);
+   string acctName = AccountInfoString(ACCOUNT_NAME);
+
+   // Escape any quotes in strings
+   StringReplace(company,  "\"", "\\\"");
+   StringReplace(acctName, "\"", "\\\"");
+
+   string json = StringFormat(
+      "{\"accountType\":\"%s\",\"balance\":%.2f,\"equity\":%.2f,"
+      "\"freeMargin\":%.2f,\"currency\":\"%s\",\"login\":%lld,"
+      "\"broker\":\"%s\",\"name\":\"%s\"}",
+      accType, bal, equity, freeMgn, ccy, login, company, acctName
+   );
+
+   string url     = SERVER_URL + "/api/mt5/balance-report?key=" + EA_KEY;
+   string headers = "Content-Type: application/json\r\n";
+   char   postData[];
+   char   responseBytes[];
+   string responseHeaders;
+
+   int len = StringLen(json);
+   ArrayResize(postData, len);
+   StringToCharArray(json, postData, 0, len);
+
+   int httpStatus = WebRequest("POST", url, headers, 5000, postData, responseBytes, responseHeaders);
+
+   if (VERBOSE)
+      PrintFormat("[SmartFX EA] Balance report → HTTP %d  [%s] %.2f %s",
+                  httpStatus, accType, bal, ccy);
 }
 
 //+------------------------------------------------------------------+
@@ -104,13 +159,13 @@ void PollAndExecute()
          continue;
       }
 
-      int    execId     = (int)StringToInteger(fields[0]);
-      string pair       = fields[1];
-      string signalDir  = fields[2]; // "BUY" or "SELL"
-      double entry      = StringToDouble(fields[3]);
-      double stopLoss   = StringToDouble(fields[4]);
+      int    execId    = (int)StringToInteger(fields[0]);
+      string pair      = fields[1];
+      string signalDir = fields[2]; // "BUY" or "SELL"
+      double entry     = StringToDouble(fields[3]);
+      double stopLoss  = StringToDouble(fields[4]);
       double takeProfit = StringToDouble(fields[5]);
-      double riskPct    = StringToDouble(fields[6]);
+      double riskPct   = StringToDouble(fields[6]);
       if (riskPct <= 0) riskPct = RISK_PERCENT;
 
       ExecuteTrade(execId, pair, signalDir, entry, stopLoss, takeProfit, riskPct);
@@ -137,10 +192,10 @@ double CalcLots(string symbol, double entry, double stopLoss, double riskPct)
    double slInTicks = slDist / tickSize;
    if (slInTicks <= 0) return 0.01;
 
-   double lots     = riskAmt / (slInTicks * tickValue);
-   double lotStep  = SymbolInfoDouble(symbol, SYMBOL_VOLUME_STEP);
-   double minLot   = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
-   double maxLot   = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MAX);
+   double lots    = riskAmt / (slInTicks * tickValue);
+   double lotStep = SymbolInfoDouble(symbol, SYMBOL_VOLUME_STEP);
+   double minLot  = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
+   double maxLot  = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MAX);
 
    lots = MathRound(lots / lotStep) * lotStep;
    lots = MathMax(minLot, MathMin(maxLot, lots));
@@ -171,11 +226,14 @@ void ExecuteTrade(int execId, string pair, string signalDir, double entry, doubl
 
    if (ok && trade.ResultRetcode() == TRADE_RETCODE_DONE)
    {
-      ulong ticket   = trade.ResultOrder();
+      ulong  ticket    = trade.ResultOrder();
       double execLots  = trade.ResultVolume();
       double execPrice = trade.ResultPrice();
       PrintFormat("[SmartFX EA] ✓ Trade opened. Ticket #%llu  lots=%.2f  price=%.5f", ticket, execLots, execPrice);
       ReportBack(execId, true, (long)ticket, execLots, execPrice, "");
+
+      // After any trade, refresh balance immediately
+      ReportAccountBalance();
    }
    else
    {
