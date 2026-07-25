@@ -495,6 +495,14 @@ export default function Analyze() {
     }
   }, [watchlistKey, scanTF, minConf, mt5Risk]);
 
+  // Auto-scan on mount — run one scan immediately when the page first loads
+  const didMountScan = useRef(false);
+  useEffect(() => {
+    if (didMountScan.current) return;
+    didMountScan.current = true;
+    runScan(false);
+  }, [runScan]);
+
   // Auto-scan interval
   useEffect(() => {
     if (autoIntervalRef.current) clearInterval(autoIntervalRef.current);
