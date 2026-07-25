@@ -1,19 +1,19 @@
 //+------------------------------------------------------------------+
 //|                                               SmartFX_EA.mq5     |
-//|                        SmartFX AI Trading System v2.0            |
+//|                        SmartFX AI Trading System v2.1            |
 //|          Polls smart-fx-tool.replit.app and auto-trades MT5      |
 //+------------------------------------------------------------------+
 #property copyright "SmartFX AI"
-#property version   "2.00"
+#property version   "2.10"
 #property strict
 
 #include <Trade\Trade.mqh>
 
 //--- Input parameters
 input string InpApiUrl          = "https://smart-fx-tool.vercel.app"; // SmartFX API Base URL
-input double InpLotSize         = 0.01;     // Lot Size
+input double InpLotSize         = 0.01;     // Default Lot Size (auto-signals)
 input int    InpMagicNumber     = 20260725; // Magic Number (unique per EA instance)
-input int    InpMinConfidence   = 80;       // Min Signal Confidence (%)
+input int    InpMinConfidence   = 80;       // Min Signal Confidence (%) for auto-trade
 input int    InpMaxSpreadPts    = 30;       // Max Allowed Spread (points)
 input int    InpPollSeconds     = 10;       // Poll Interval (seconds)
 input bool   InpTradeForex      = true;     // Trade Forex & Metals
@@ -35,11 +35,11 @@ int OnInit()
 
    EventSetTimer(InpPollSeconds);
 
-   Comment("SmartFX v2.0 | Magic: ", InpMagicNumber,
+   Comment("SmartFX v2.1 | Magic: ", InpMagicNumber,
            " | Conf: >=", InpMinConfidence, "%",
            " | Lots: ", InpLotSize);
 
-   Print("SmartFX EA v2.0 started. Server: ", InpApiUrl,
+   Print("SmartFX EA v2.1 started. Server: ", InpApiUrl,
          " | Poll: every ", InpPollSeconds, "s");
    return INIT_SUCCEEDED;
 }
@@ -51,10 +51,114 @@ void OnDeinit(const int reason)
    Print("SmartFX EA stopped. Reason: ", reason);
 }
 
-void OnTimer() { PollAndTrade(); ReportBalance(); }
+void OnTimer()
+{
+   PollForceQueue();   // Manual "Execute Trade" from dashboard — check first
+   PollAndTrade();     // Auto-signal polling
+   ReportBalance();    // Balance reporting
+}
 
 //+------------------------------------------------------------------+
-//| Main poll + trade loop                                            |
+//| Poll manual force-execute queue from dashboard                    |
+//+------------------------------------------------------------------+
+void PollForceQueue()
+{
+   string url = InpApiUrl + "/api/ea/force-queue";
+
+   char   postData[], response[];
+   string respHeaders;
+   ArrayResize(postData, 0);
+
+   int httpCode = WebRequest("GET", url, "Content-Type: application/json\r\n",
+                             8000, postData, response, respHeaders);
+
+   if (httpCode != 200) return;
+
+   string json = CharArrayToString(response, 0, WHOLE_ARRAY, CP_UTF8);
+   StringTrimLeft(json);
+   StringTrimRight(json);
+
+   // Empty array — nothing to do
+   if (json == "" || json == "[]" || StringFind(json, "\"id\"") < 0) return;
+
+   // Extract first pending item — find first object in array
+   int objStart = StringFind(json, "{");
+   int objEnd   = StringFind(json, "}", objStart);
+   if (objStart < 0 || objEnd < 0) return;
+
+   string item = StringSubstr(json, objStart, objEnd - objStart + 1);
+
+   string fqId   = JsStr(item, "id");
+   string pair   = JsStr(item, "pair");
+   string dir    = JsStr(item, "direction");
+   double lots   = StringToDouble(JsNum(item, "lotSize"));
+   double sl     = StringToDouble(JsNum(item, "sl"));
+   double tp     = StringToDouble(JsNum(item, "tp"));
+   string sigId  = JsStr(item, "signalId");
+   int    conf   = (int)StringToInteger(JsNum(item, "confidence"));
+   string tf     = JsStr(item, "timeframe");
+
+   if (fqId == "" || pair == "") return;
+   if (lots <= 0) lots = InpLotSize;
+
+   Print("SmartFX MANUAL: ", dir, " ", pair,
+         " Lots:", lots, " SL:", sl, " TP:", tp,
+         " | QueueID:", fqId);
+
+   // Mark done immediately to prevent double-execution
+   MarkForceDone(fqId);
+
+   // Resolve symbol
+   string symbol = ResolveSymbol(pair);
+   if (symbol == "")
+   {
+      Print("SmartFX MANUAL: Symbol not found for [", pair, "] — cannot execute");
+      return;
+   }
+
+   // Execute trade
+   bool ok = false;
+   if (dir == "BUY")
+      ok = g_trade.Buy(lots, symbol, 0, sl, tp, "SmartFX-Manual #" + sigId);
+   else if (dir == "SELL")
+      ok = g_trade.Sell(lots, symbol, 0, sl, tp, "SmartFX-Manual #" + sigId);
+
+   if (ok)
+   {
+      g_trades++;
+      ulong ticket = g_trade.ResultOrder();
+      Print("SmartFX MANUAL: Trade opened ✓ — ", dir, " ", symbol,
+            " | Ticket:", ticket, " | Lots:", lots);
+      ReportTrade(ticket, symbol, dir, lots, sl, tp, sigId, conf, tf);
+      g_lastPoll = TimeCurrent();
+      Comment("SmartFX v2.1 | Last trade: MANUAL ", dir, " ", symbol,
+              " | Total trades: ", g_trades);
+   }
+   else
+   {
+      Print("SmartFX MANUAL: Trade FAILED — ", g_trade.ResultRetcodeDescription(),
+            " (", g_trade.ResultRetcode(), ")");
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Mark a force-queue item as done                                   |
+//+------------------------------------------------------------------+
+void MarkForceDone(const string &fqId)
+{
+   string url = InpApiUrl + "/api/ea/force-queue/" + fqId + "/done";
+
+   string bodyStr = "{}";
+   char   postData[], response[];
+   string respHeaders;
+   StringToCharArray(bodyStr, postData, 0, StringLen(bodyStr));
+
+   WebRequest("POST", url, "Content-Type: application/json\r\n",
+              5000, postData, response, respHeaders);
+}
+
+//+------------------------------------------------------------------+
+//| Main auto-poll + trade loop                                       |
 //+------------------------------------------------------------------+
 void PollAndTrade()
 {
@@ -94,8 +198,8 @@ void PollAndTrade()
    if (json == "" || json == "null" || StringFind(json, "\"id\"") < 0)
    {
       g_lastPoll = TimeCurrent();
-      Comment("SmartFX v2.0 | Last poll: ", TimeToString(g_lastPoll, TIME_MINUTES),
-              " | Trades: ", g_trades, " | No new signal");
+      Comment("SmartFX v2.1 | Last poll: ", TimeToString(g_lastPoll, TIME_MINUTES),
+              " | Trades: ", g_trades, " | Waiting for signal >=", InpMinConfidence, "%");
       return;
    }
 
@@ -112,7 +216,7 @@ void PollAndTrade()
    // Already processed this signal
    if (sigId == g_lastId || sigId == "") return;
 
-   Print("SmartFX signal #", sigId, ": ", dir, " ", pair,
+   Print("SmartFX AUTO signal #", sigId, ": ", dir, " ", pair,
          " | Entry:", entry, " SL:", sl, " TP:", tp,
          " | Conf:", conf, "% | TF:", tf);
 
@@ -161,18 +265,18 @@ void PollAndTrade()
    {
       g_trades++;
       ulong ticket = g_trade.ResultOrder();
-      Print("SmartFX: Trade opened ✓ — ", dir, " ", symbol,
+      Print("SmartFX AUTO: Trade opened ✓ — ", dir, " ", symbol,
             " | Ticket:", ticket);
       ReportTrade(ticket, symbol, dir, InpLotSize, sl, tp, sigId, conf, tf);
    }
    else
    {
-      Print("SmartFX: Trade FAILED — ", g_trade.ResultRetcodeDescription(),
+      Print("SmartFX AUTO: Trade FAILED — ", g_trade.ResultRetcodeDescription(),
             " (", g_trade.ResultRetcode(), ")");
    }
 
    g_lastPoll = TimeCurrent();
-   Comment("SmartFX v2.0 | Last poll: ", TimeToString(g_lastPoll, TIME_MINUTES),
+   Comment("SmartFX v2.1 | Last poll: ", TimeToString(g_lastPoll, TIME_MINUTES),
            " | Trades: ", g_trades);
 }
 
@@ -210,8 +314,8 @@ void ReportTrade(ulong ticket, string symbol, string direction,
 //+------------------------------------------------------------------+
 void ReportBalance()
 {
-   // Only report once per minute to avoid flooding
-   if (TimeCurrent() - g_lastBalance < 60) return;
+   // Report every 15 seconds for real-time balance display
+   if (TimeCurrent() - g_lastBalance < 15) return;
    g_lastBalance = TimeCurrent();
 
    long   login       = AccountInfoInteger(ACCOUNT_LOGIN);
@@ -228,20 +332,22 @@ void ReportBalance()
       login, balance, equity, currency, server, accountType
    );
 
-   string url = InpApiUrl + "/api/ea/balance";
-   char   postData[], response[];
-   string respHeaders;
-   StringToCharArray(json, postData, 0, StringLen(json));
+   // Report to both endpoints
+   string urls[2];
+   urls[0] = InpApiUrl + "/api/ea/balance";
+   urls[1] = InpApiUrl + "/api/mt5/balance-report";
 
-   int code = WebRequest("POST", url,
-      "Content-Type: application/json\r\n",
-      5000, postData, response, respHeaders);
+   for (int i = 0; i < 2; i++)
+   {
+      char   postData[], response[];
+      string respHeaders;
+      StringToCharArray(json, postData, 0, StringLen(json));
+      WebRequest("POST", urls[i], "Content-Type: application/json\r\n",
+                 5000, postData, response, respHeaders);
+   }
 
-   if (code == 200)
-      Print("SmartFX: Balance reported — ", currency, " ", DoubleToString(balance, 2),
-            " (", accountType, " #", login, ")");
-   else if (code == -1)
-      Print("SmartFX: Balance report blocked (add URL to WebRequest list)");
+   Print("SmartFX: Balance reported — ", currency, " ", DoubleToString(balance, 2),
+         " (", accountType, " #", login, ")");
 }
 
 //+------------------------------------------------------------------+
@@ -264,7 +370,6 @@ string JsNum(const string &json, const string &key)
    int pos = StringFind(json, search);
    if (pos < 0) return "0";
    pos += StringLen(search);
-   // Skip any whitespace
    while (pos < StringLen(json) && StringGetCharacter(json, pos) == ' ') pos++;
    int end = pos;
    int len = StringLen(json);

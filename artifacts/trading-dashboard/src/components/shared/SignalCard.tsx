@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "wouter";
 import { format } from "date-fns";
-import { ChevronRight, CheckCircle2, ShieldAlert, Copy, ChevronDown, ChevronUp, Check } from "lucide-react";
+import { ChevronRight, CheckCircle2, ShieldAlert, Copy, ChevronDown, ChevronUp, Check, Zap } from "lucide-react";
 import { Signal } from "@workspace/api-client-react";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { ConfidenceGauge } from "./ConfidenceGauge";
 import { TrendBadge } from "./TrendBadge";
 import { StatusBadge } from "./StatusBadge";
+import { ExecuteTradeModal } from "./ExecuteTradeModal";
 
 interface SignalCardProps {
   signal: Signal;
@@ -21,6 +22,7 @@ export function SignalCard({ signal, detailed = false, className }: SignalCardPr
   const isBuy = signal.signal === "BUY";
   const [copied, setCopied] = useState(false);
   const [showReasons, setShowReasons] = useState(false);
+  const [showExecute, setShowExecute] = useState(false);
 
   const allReasons = [
     ...(signal.hasOrderBlock ? ["Valid Order Block present at entry zone"] : []),
@@ -152,15 +154,33 @@ export function SignalCard({ signal, detailed = false, className }: SignalCardPr
       {!detailed && (
         <>
           <Separator className="bg-border/50" />
-          <CardFooter className="py-3 px-6 flex justify-between items-center bg-card/30">
-            <span className="text-xs text-muted-foreground">
+          <CardFooter className="py-3 px-6 flex justify-between items-center bg-card/30 gap-2">
+            <span className="text-xs text-muted-foreground shrink-0">
               {format(new Date(signal.createdAt), "MMM d, HH:mm")}
             </span>
-            <Link href={`/signals/${signal.id}`} className="text-xs font-medium text-primary flex items-center gap-1 group-hover:underline">
-              View Analysis <ChevronRight className="w-3 h-3 group-hover:translate-x-1 transition-transform" />
-            </Link>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={e => { e.preventDefault(); setShowExecute(true); }}
+                className={cn(
+                  "flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-lg transition-all",
+                  isBuy
+                    ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25"
+                    : "bg-rose-500/15 text-rose-400 border border-rose-500/30 hover:bg-rose-500/25"
+                )}
+              >
+                <Zap className="w-3 h-3" />
+                Execute
+              </button>
+              <Link href={`/signals/${signal.id}`} className="text-xs font-medium text-primary flex items-center gap-1 group-hover:underline">
+                Analyse <ChevronRight className="w-3 h-3 group-hover:translate-x-1 transition-transform" />
+              </Link>
+            </div>
           </CardFooter>
         </>
+      )}
+
+      {showExecute && (
+        <ExecuteTradeModal signal={signal} onClose={() => setShowExecute(false)} />
       )}
     </Card>
   );

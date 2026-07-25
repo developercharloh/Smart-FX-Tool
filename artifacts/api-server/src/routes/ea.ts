@@ -174,6 +174,75 @@ router.get("/trades", (_req, res) => {
   return res.json(_trades);
 });
 
+// ── Force-execute queue (manual "Execute Trade" from dashboard) ───────────────
+interface ForceQueueItem {
+  id:         string;
+  signalId:   string;
+  lotSize:    number;
+  pair:       string;
+  direction:  "BUY" | "SELL";
+  entry:      number;
+  sl:         number;
+  tp:         number;
+  confidence: number;
+  timeframe:  string;
+  createdAt:  number;
+  status:     "PENDING" | "TAKEN";
+}
+export const _forceQueue: ForceQueueItem[] = [];
+
+// POST /api/ea/execute — dashboard pushes a signal for immediate execution
+router.post("/execute", async (req, res) => {
+  const { signalId, lotSize } = req.body;
+  if (!signalId) return res.status(400).json({ error: "signalId required" });
+
+  try {
+    const rows = await db
+      .select()
+      .from(signalsTable)
+      .where(eq(signalsTable.id, Number(signalId)))
+      .limit(1);
+
+    const s = rows[0];
+    if (!s) return res.status(404).json({ error: "Signal not found" });
+
+    const item: ForceQueueItem = {
+      id:         `fq-${Date.now()}`,
+      signalId:   String(signalId),
+      lotSize:    Math.max(0.01, Number(lotSize) || 0.01),
+      pair:       s.pair,
+      direction:  s.signal === "BUY" ? "BUY" : "SELL",
+      entry:      s.entry,
+      sl:         s.stopLoss,
+      tp:         s.takeProfit,
+      confidence: s.confidenceScore,
+      timeframe:  s.timeframe,
+      createdAt:  Date.now(),
+      status:     "PENDING",
+    };
+
+    _forceQueue.unshift(item);
+    if (_forceQueue.length > 50) _forceQueue.splice(50);
+
+    return res.json({ ok: true, id: item.id });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/ea/force-queue — EA polls this for manual trades
+router.get("/force-queue", (_req, res) => {
+  const pending = _forceQueue.filter(i => i.status === "PENDING");
+  return res.json(pending);
+});
+
+// POST /api/ea/force-queue/:id/done — EA marks item as executed
+router.post("/force-queue/:id/done", (req, res) => {
+  const item = _forceQueue.find(i => i.id === req.params.id);
+  if (item) item.status = "TAKEN";
+  return res.json({ ok: true });
+});
+
 // ── GET /api/ea/status ────────────────────────────────────────────────────────
 // Lightweight ping so the setup page can confirm the server is reachable.
 router.get("/status", (_req, res) => {
