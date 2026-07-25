@@ -128,6 +128,37 @@ function derivTrade(token: string, symbol: string, direction: "BUY" | "SELL", st
   });
 }
 
+// ─── Fetch account balance ────────────────────────────────────────────────────
+
+export function fetchDerivBalance(token: string): Promise<{ balance: number; currency: string; loginid: string } | null> {
+  return new Promise((resolve) => {
+    const ws = new WebSocket(WS_URL);
+    const timeout = setTimeout(() => { ws.close(); resolve(null); }, 15000);
+
+    ws.onopen = () => ws.send(JSON.stringify({ authorize: token }));
+
+    ws.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(ev.data);
+        if (msg.error) { clearTimeout(timeout); ws.close(); resolve(null); return; }
+        if (msg.msg_type === "authorize") {
+          ws.send(JSON.stringify({ balance: 1, account: "current" }));
+        }
+        if (msg.msg_type === "balance") {
+          clearTimeout(timeout); ws.close();
+          resolve({
+            balance:  msg.balance?.balance ?? 0,
+            currency: msg.balance?.currency ?? "USD",
+            loginid:  msg.balance?.loginid  ?? "",
+          });
+        }
+      } catch { clearTimeout(timeout); ws.close(); resolve(null); }
+    };
+
+    ws.onerror = () => { clearTimeout(timeout); resolve(null); };
+  });
+}
+
 // ─── Fetch open multiplier positions ─────────────────────────────────────────
 
 export function fetchOpenPositions(token: string): Promise<OpenPosition[]> {
@@ -204,6 +235,7 @@ export function useDerivTrade() {
   const [status, setStatus]     = useState<TradeStatus>("idle");
   const [lastResult, setResult] = useState<TradeResult | null>(null);
   const [positions, setPositions] = useState<OpenPosition[]>([]);
+  const [balance, setBalance]   = useState<{ balance: number; currency: string; loginid: string } | null>(null);
   const activeRef = useRef(false);
 
   const effectiveSettings: TradeSettings = {
@@ -243,13 +275,19 @@ export function useDerivTrade() {
       const result = await derivTrade(token, symbol, direction, effectiveSettings.stake, effectiveSettings.multiplier);
       setResult(result);
       setStatus(result.ok ? "done" : "error");
-      if (result.ok) refreshPositions();
+      if (result.ok) { refreshPositions(); refreshBalance(); }
       return result;
     } finally {
       activeRef.current = false;
       setTimeout(() => setStatus("idle"), 4000);
     }
   }, [token, effectiveSettings.stake, effectiveSettings.multiplier]);
+
+  const refreshBalance = useCallback(async () => {
+    if (!token) return;
+    const bal = await fetchDerivBalance(token);
+    setBalance(bal);
+  }, [token]);
 
   const refreshPositions = useCallback(async () => {
     if (!token) return;
@@ -268,6 +306,7 @@ export function useDerivTrade() {
     token, saveToken, removeToken,
     settings: effectiveSettings, saveSettings,
     status, lastResult,
+    balance, refreshBalance,
     positions, refreshPositions, closePos,
     executeTrade,
     isTrading: status === "connecting" || status === "proposing" || status === "buying",

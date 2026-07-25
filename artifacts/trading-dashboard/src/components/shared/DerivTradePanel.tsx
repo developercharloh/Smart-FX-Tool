@@ -116,6 +116,7 @@ export function DerivTradePanel() {
     token, saveToken, removeToken,
     settings, saveSettings,
     status, lastResult,
+    balance, refreshBalance,
     positions, refreshPositions, closePos,
   } = useDerivTradeCtx();
 
@@ -123,7 +124,10 @@ export function DerivTradePanel() {
   const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
-    if (token) refreshPositions();
+    if (token) {
+      refreshBalance();
+      refreshPositions();
+    }
   }, [token]);
 
   const statusColor =
@@ -138,7 +142,7 @@ export function DerivTradePanel() {
     >
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-4">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 flex-wrap">
           <Zap className="w-5 h-5 text-cyan-400" />
           <span className="text-sm font-bold text-white tracking-wide">Deriv Trade</span>
           {token && (
@@ -146,6 +150,16 @@ export function DerivTradePanel() {
               className="text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded-full">
               Connected
             </span>
+          )}
+          {token && balance && (
+            <span style={{ background: "rgba(0,255,255,0.06)", border: "1px solid rgba(0,255,255,0.18)" }}
+              className="flex items-center gap-1 text-[11px] font-bold text-cyan-300 px-2.5 py-0.5 rounded-full font-mono">
+              <Wallet className="w-3 h-3" />
+              {balance.currency} {balance.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+          )}
+          {token && !balance && (
+            <span className="text-[10px] text-slate-600 animate-pulse">Loading balance…</span>
           )}
         </div>
         <div className="flex items-center gap-2">
