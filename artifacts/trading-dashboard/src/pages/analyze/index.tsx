@@ -233,61 +233,77 @@ function VolatilityBadge({ entry, stopLoss }: { entry: number; stopLoss: number 
 // SCANNER SIGNAL CARD
 // ─────────────────────────────────────────────────────────────────────────────
 
+const LOT_PRESETS = ["0.01", "0.05", "0.10", "0.20"];
+
 function ScannerSignalCard({
   result, onDeepAnalyze
 }: {
   result: ScanResult;
   onDeepAnalyze: (pair: string, tf: string) => void;
 }) {
-  const [cardResult, setCardResult] = useState<{ ok: boolean; message: string } | null>(null);
-  const [feeding, setFeeding] = useState(false);
+  const [showExec, setShowExec]   = useState(false);
+  const [lotSize,  setLotSize]    = useState("0.01");
+  const [execStep, setExecStep]   = useState<"idle"|"saving"|"queuing"|"done"|"error">("idle");
+  const [execMsg,  setExecMsg]    = useState("");
 
-  async function handleFeedToEA() {
-    setFeeding(true);
-    setCardResult(null);
+  async function handleExecute() {
+    setExecStep("saving");
+    setExecMsg("");
     try {
-      const body = {
-        pair:             result.pair,
-        signal:           result.signal,
-        timeframe:        result.timeframe,
-        entry:            result.entry,
-        stopLoss:         result.stopLoss,
-        takeProfit:       result.takeProfit,
-        confidenceScore:  result.confidenceScore,
-        riskRewardRatio:  result.riskRewardRatio,
-        reasons:          result.reasons,
-        structureType:    result.structureType ?? "NONE",
-        trend:            result.trend ?? "NEUTRAL",
-        hasOrderBlock:        result.hasOrderBlock ?? false,
-        hasSupportResistance: false,
-      };
-      const r = await fetch(`${BASE}/api/signals`, {
+      // 1 — save signal to DB to get an ID
+      const saveRes = await fetch(`${BASE}/api/signals`, {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify(body),
+        body: JSON.stringify({
+          pair:             result.pair,
+          signal:           result.signal,
+          timeframe:        result.timeframe,
+          entry:            result.entry,
+          stopLoss:         result.stopLoss,
+          takeProfit:       result.takeProfit,
+          confidenceScore:  result.confidenceScore,
+          riskRewardRatio:  result.riskRewardRatio,
+          reasons:          result.reasons,
+          structureType:    result.structureType ?? "NONE",
+          trend:            result.trend ?? "NEUTRAL",
+          hasOrderBlock:        result.hasOrderBlock ?? false,
+          hasSupportResistance: false,
+        }),
       });
-      if (!r.ok) throw new Error(await r.text());
-      setCardResult({ ok: true, message: "✓ Signal queued — EA will trade it" });
+      if (!saveRes.ok) throw new Error(await saveRes.text());
+      const saved = await saveRes.json();
+
+      // 2 — queue to force-execute queue
+      setExecStep("queuing");
+      const execRes = await fetch(`${BASE}/api/ea/execute`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ signalId: saved.id, lotSize: parseFloat(lotSize) }),
+      });
+      if (!execRes.ok) throw new Error(await execRes.text());
+
+      setExecStep("done");
+      setExecMsg(`${result.signal} ${result.pair} · ${lotSize} lots — EA executes within 10s`);
     } catch (e: any) {
-      setCardResult({ ok: false, message: e.message ?? "Failed to queue signal" });
-    } finally {
-      setFeeding(false);
-      setTimeout(() => setCardResult(null), 5000);
+      setExecStep("error");
+      setExecMsg(e.message ?? "Failed");
     }
   }
 
-  const isBuy = result.signal === "BUY";
-  const isSynthetic = SYNTHETIC_SYMBOLS.has(result.pair);
-  const fmt = (v: number) => fmtPriceFor(v, result.pair, isSynthetic);
-  const isHighConf = result.confidenceScore >= 80;
+  function resetExec() { setExecStep("idle"); setExecMsg(""); setShowExec(false); }
 
+  const isBuy       = result.signal === "BUY";
+  const isSynthetic = SYNTHETIC_SYMBOLS.has(result.pair);
+  const fmt         = (v: number) => fmtPriceFor(v, result.pair, isSynthetic);
+  const isHighConf  = result.confidenceScore >= 80;
   const borderColor = isBuy ? "rgba(52,211,153,0.25)" : "rgba(248,113,113,0.25)";
   const glowColor   = isBuy ? "rgba(52,211,153,0.06)" : "rgba(248,113,113,0.06)";
+  const busy        = execStep === "saving" || execStep === "queuing";
 
   return (
     <div
       style={{
-        background: `rgba(11,15,25,0.85)`,
+        background: "rgba(11,15,25,0.85)",
         border: `1px solid ${borderColor}`,
         boxShadow: `0 4px 24px ${glowColor}, 0 0 0 1px rgba(255,255,255,0.02)`,
         backdropFilter: "blur(16px)",
@@ -306,7 +322,7 @@ function ScannerSignalCard({
         </div>
       )}
 
-      {/* Header: pair + signal */}
+      {/* Header */}
       <div className="pr-20">
         <div className="flex items-center gap-2 mb-1">
           <span
@@ -331,9 +347,8 @@ function ScannerSignalCard({
         </div>
       </div>
 
-      {/* Confidence + Entry/SL/TP */}
+      {/* Confidence + Entry/SL/TP — auto-filled */}
       <div className="flex items-center gap-3">
-        {/* Confidence score */}
         <div
           style={isHighConf
             ? { background: "rgba(0,255,255,0.06)", border: "1px solid rgba(0,255,255,0.18)" }
@@ -346,13 +361,11 @@ function ScannerSignalCard({
           </div>
           <div className="text-[9px] text-slate-500 uppercase tracking-wider mt-0.5">confidence</div>
         </div>
-
-        {/* Levels grid */}
         <div className="flex-1 grid grid-cols-3 gap-2">
           {[
-            { label: "Entry",  val: fmt(result.entry),      col: "text-white" },
-            { label: "SL",     val: fmt(result.stopLoss),   col: "text-rose-400" },
-            { label: "TP",     val: fmt(result.takeProfit), col: "text-emerald-400" },
+            { label: "Entry", val: fmt(result.entry),      col: "text-white" },
+            { label: "SL",    val: fmt(result.stopLoss),   col: "text-rose-400" },
+            { label: "TP",    val: fmt(result.takeProfit), col: "text-emerald-400" },
           ].map(({ label, val, col }) => (
             <div key={label}
               style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}
@@ -368,9 +381,7 @@ function ScannerSignalCard({
       {/* R:R + Confluence */}
       <div className="flex items-center gap-3">
         <span className="text-[10px] font-mono text-slate-500">R:R <span className="text-white font-bold">1:{result.riskRewardRatio.toFixed(1)}</span></span>
-        <div className="flex-1">
-          <ConfluenceBar bull={result.bullScore} bear={result.bearScore} />
-        </div>
+        <div className="flex-1"><ConfluenceBar bull={result.bullScore} bear={result.bearScore} /></div>
       </div>
 
       {/* Top 2 reasons */}
@@ -381,19 +392,64 @@ function ScannerSignalCard({
         </div>
       ))}
 
-      {/* Card trade result */}
-      {cardResult && (
-        <div style={cardResult.ok
-          ? { background: "rgba(52,211,153,0.08)", border: "1px solid rgba(52,211,153,0.25)" }
-          : { background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.25)" }
-        } className="flex items-center gap-2 px-3 py-2 rounded-[8px] text-[11px] font-semibold"
+      {/* ── Execute panel — inline, no modal needed ── */}
+      {showExec && execStep !== "done" && (
+        <div
+          style={{ background: "rgba(0,0,0,0.35)", border: `1px solid ${isBuy ? "rgba(52,211,153,0.2)" : "rgba(248,113,113,0.2)"}` }}
+          className="rounded-[10px] p-3 space-y-2.5"
         >
-          <span className={cardResult.ok ? "text-emerald-400" : "text-rose-400"}>{cardResult.message}</span>
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wider">Lot Size</span>
+            <span className="text-[11px] font-mono font-bold text-cyan-400">{lotSize} lots</span>
+          </div>
+          <div className="grid grid-cols-4 gap-1.5">
+            {LOT_PRESETS.map(p => (
+              <button key={p} onClick={() => setLotSize(p)}
+                className="py-1.5 rounded-[6px] text-[11px] font-mono font-bold transition-all"
+                style={lotSize === p
+                  ? { background: "rgba(0,229,255,0.15)", border: "1px solid rgba(0,229,255,0.5)", color: "#00e5ff" }
+                  : { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#64748b" }}
+              >{p}</button>
+            ))}
+          </div>
+          {execStep === "error" && (
+            <p className="text-[11px] text-rose-400">{execMsg}</p>
+          )}
+          <div className="flex gap-2">
+            <button onClick={resetExec}
+              className="px-3 py-2 rounded-[7px] text-xs text-slate-500 hover:text-white transition-colors"
+              style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}
+            >Cancel</button>
+            <button onClick={handleExecute} disabled={busy}
+              className="flex-1 py-2 rounded-[7px] text-xs font-bold text-black flex items-center justify-center gap-1.5 hover:opacity-90 transition-opacity disabled:opacity-60"
+              style={{ background: "linear-gradient(135deg,#00e5ff,#0090ff)" }}
+            >
+              {busy
+                ? <><RefreshCw className="w-3 h-3 animate-spin" /> {execStep === "saving" ? "Saving…" : "Queuing…"}</>
+                : <><Zap className="w-3 h-3" /> Execute Trade</>}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Success state */}
+      {execStep === "done" && (
+        <div
+          style={{ background: "rgba(52,211,153,0.08)", border: "1px solid rgba(52,211,153,0.25)" }}
+          className="flex items-center justify-between gap-2 px-3 py-2.5 rounded-[10px]"
+        >
+          <div>
+            <p className="text-[11px] font-bold text-emerald-400">✓ Trade queued</p>
+            <p className="text-[10px] text-slate-500 mt-0.5">{execMsg}</p>
+          </div>
+          <button onClick={resetExec} className="text-slate-600 hover:text-slate-400 transition-colors">
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
 
       {/* Action buttons */}
-      <div className="flex gap-2 pt-1 flex-wrap">
+      <div className="flex gap-2 pt-1">
         <button
           onClick={() => onDeepAnalyze(result.pair, result.timeframe)}
           style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}
@@ -401,22 +457,18 @@ function ScannerSignalCard({
         >
           <Search className="w-3 h-3" /> Deep Analyse
         </button>
-        {isHighConf && (
-          <button
-            onClick={handleFeedToEA}
-            disabled={feeding}
-            style={{
-              background: isBuy
-                ? "linear-gradient(135deg,rgba(52,211,153,0.18),rgba(0,255,255,0.12))"
-                : "linear-gradient(135deg,rgba(248,113,113,0.18),rgba(239,68,68,0.12))",
-              border: isBuy ? "1px solid rgba(52,211,153,0.35)" : "1px solid rgba(248,113,113,0.35)",
-              opacity: feeding ? 0.6 : 1,
-            }}
-            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-[8px] text-xs font-bold text-white hover:scale-[1.02] active:scale-[0.98] transition-all disabled:cursor-wait"
-          >
-            <Zap className="w-3 h-3" /> {feeding ? "Queuing…" : `Feed to EA — ${result.signal} ${result.pair}`}
-          </button>
-        )}
+        <button
+          onClick={() => { setShowExec(v => !v); setExecStep("idle"); }}
+          style={{
+            background: isBuy
+              ? "linear-gradient(135deg,rgba(52,211,153,0.18),rgba(0,255,255,0.12))"
+              : "linear-gradient(135deg,rgba(248,113,113,0.18),rgba(239,68,68,0.12))",
+            border: isBuy ? "1px solid rgba(52,211,153,0.35)" : "1px solid rgba(248,113,113,0.35)",
+          }}
+          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-[8px] text-xs font-bold text-white hover:scale-[1.02] active:scale-[0.98] transition-all"
+        >
+          <Zap className="w-3 h-3" /> Execute Trade
+        </button>
       </div>
     </div>
   );
