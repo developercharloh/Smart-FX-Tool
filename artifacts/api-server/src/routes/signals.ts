@@ -19,23 +19,147 @@ const router = Router();
 interface Candle { open: number; high: number; low: number; close: number }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CANDLE SIMULATION  (realistic random walk with trend & volatility)
+// REAL CANDLE FETCHING  (Binance for crypto · Yahoo Finance for forex/metals)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function generateCandles(basePrice: number, atrPct: number, count = 150): Candle[] {
-  const candles: Candle[] = [];
+interface CandleWithTime extends Candle { time: number }
+
+const _candleCache = new Map<string, { candles: CandleWithTime[]; fetchedAt: number }>();
+const CANDLE_TTL = 2 * 60 * 1000; // 2 min
+
+const TF_TO_BINANCE: Record<string, string> = {
+  M1:"1m", M5:"5m", M15:"15m", M30:"30m", H1:"1h", H4:"4h", D1:"1d",
+};
+const TF_TO_YAHOO: Record<string, { interval: string; range: string }> = {
+  M1:  { interval:"1m",  range:"1d"  },
+  M5:  { interval:"5m",  range:"5d"  },
+  M15: { interval:"15m", range:"5d"  },
+  M30: { interval:"30m", range:"10d" },
+  H1:  { interval:"60m", range:"7d"  },
+  H4:  { interval:"60m", range:"30d" }, // aggregate 4×1h → 4h
+  D1:  { interval:"1d",  range:"1y"  },
+};
+
+function toBinanceSymbol(pair: string): string | null {
+  const bases = ["BTC","ETH","BNB","SOL","ADA","XRP","DOGE","DOT","LTC","AVAX","MATIC","LINK"];
+  const base = bases.find(b => pair.startsWith(b));
+  return base ? base + "USDT" : null;
+}
+
+const YAHOO_MAP: Record<string, string> = {
+  EURUSD:"EURUSD=X", GBPUSD:"GBPUSD=X", USDJPY:"USDJPY=X",
+  AUDUSD:"AUDUSD=X", USDCAD:"USDCAD=X", NZDUSD:"NZDUSD=X", USDCHF:"USDCHF=X",
+  GBPJPY:"GBPJPY=X", EURJPY:"EURJPY=X", EURGBP:"EURGBP=X", AUDJPY:"AUDJPY=X",
+  GBPCAD:"GBPCAD=X", AUDCAD:"AUDCAD=X", CADCHF:"CADCHF=X", GBPCHF:"GBPCHF=X",
+  EURCHF:"EURCHF=X", GBPAUD:"GBPAUD=X", EURAUD:"EURAUD=X", AUDNZD:"AUDNZD=X",
+  USDSGD:"USDSGD=X", USDHKD:"USDHKD=X",
+  XAUUSD:"GC=F", XAGUSD:"SI=F", XPTUSD:"PL=F",
+  USOIL:"CL=F", UKOIL:"BZ=F", NATGAS:"NG=F", COPPER:"HG=F",
+  DXY:"DX=F",
+};
+
+async function _fetchBinanceCandles(symbol: string, interval: string, limit: number): Promise<CandleWithTime[]> {
+  const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+  const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  if (!r.ok) throw new Error(`Binance ${r.status}`);
+  const data: any[] = await r.json();
+  return data.map(k => ({
+    time:  Math.floor(k[0] / 1000),
+    open:  parseFloat(k[1]),
+    high:  parseFloat(k[2]),
+    low:   parseFloat(k[3]),
+    close: parseFloat(k[4]),
+  }));
+}
+
+async function _fetchYahooCandles(ticker: string, interval: string, range: string, aggregate?: number): Promise<CandleWithTime[]> {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=${interval}&range=${range}&includePrePost=false`;
+  const r = await fetch(url, {
+    headers: { "User-Agent": "Mozilla/5.0" },
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!r.ok) throw new Error(`Yahoo ${r.status}`);
+  const json = await r.json();
+  const result = json?.chart?.result?.[0];
+  if (!result) throw new Error("Yahoo: no result");
+  const timestamps: number[] = result.timestamp ?? [];
+  const q = result.indicators?.quote?.[0];
+  if (!q || !timestamps.length) throw new Error("Yahoo: empty");
+
+  let candles: CandleWithTime[] = timestamps
+    .map((t: number, i: number) => ({
+      time: t, open: q.open[i], high: q.high[i], low: q.low[i], close: q.close[i],
+    }))
+    .filter((c: CandleWithTime) => c.open != null && c.close != null && !isNaN(c.close));
+
+  // Aggregate sub-candles → larger timeframe (e.g. 4×1h → 4h)
+  if (aggregate && aggregate > 1) {
+    const agg: CandleWithTime[] = [];
+    for (let i = 0; i + aggregate <= candles.length; i += aggregate) {
+      const g = candles.slice(i, i + aggregate);
+      agg.push({
+        time:  g[0].time,
+        open:  g[0].open,
+        high:  Math.max(...g.map(c => c.high)),
+        low:   Math.min(...g.map(c => c.low)),
+        close: g[g.length - 1].close,
+      });
+    }
+    candles = agg;
+  }
+  return candles;
+}
+
+async function fetchRealCandles(pair: string, timeframe: string, limit = 150): Promise<CandleWithTime[]> {
+  const key = `${pair}_${timeframe}`;
+  const cached = _candleCache.get(key);
+  if (cached && Date.now() - cached.fetchedAt < CANDLE_TTL) return cached.candles.slice(-limit);
+
+  const isSynthetic = ["R_","1HZ","BOOM","CRASH","JD","STPIDX"].some(p => pair.startsWith(p));
+  if (isSynthetic) return [];
+
+  let candles: CandleWithTime[] = [];
+  try {
+    const bs = toBinanceSymbol(pair);
+    if (bs) {
+      candles = await _fetchBinanceCandles(bs, TF_TO_BINANCE[timeframe] || "1h", Math.max(limit, 150));
+    } else {
+      const ys = YAHOO_MAP[pair];
+      if (ys) {
+        const yc = TF_TO_YAHOO[timeframe] || { interval:"60m", range:"7d" };
+        candles = await _fetchYahooCandles(ys, yc.interval, yc.range, timeframe === "H4" ? 4 : undefined);
+      }
+    }
+  } catch (e) {
+    console.warn(`[candles] ${pair}/${timeframe}:`, (e as Error).message);
+  }
+
+  if (candles.length >= 30) {
+    _candleCache.set(key, { candles, fetchedAt: Date.now() });
+    return candles.slice(-limit);
+  }
+  return []; // caller falls back to simulation
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SIMULATION FALLBACK  (synthetics only, or when real data unavailable)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function generateSimulatedCandles(basePrice: number, atrPct: number, count = 150, granSecs = 3600): CandleWithTime[] {
+  const candles: CandleWithTime[] = [];
   let price = basePrice;
-  const drift = (Math.random() - 0.48) * atrPct * 0.25; // slight directional bias
+  const drift = (Math.random() - 0.48) * atrPct * 0.25;
+  const now = Math.floor(Date.now() / 1000);
 
   for (let i = 0; i < count; i++) {
-    const vol = atrPct * basePrice * (0.6 + Math.random() * 0.8);
-    const body = vol * (0.3 + Math.random() * 0.5);
-    const open = price;
-    const dir = Math.random() > 0.5 ? 1 : -1;
+    const vol   = atrPct * basePrice * (0.6 + Math.random() * 0.8);
+    const body  = vol * (0.3 + Math.random() * 0.5);
+    const open  = price;
+    const dir   = Math.random() > 0.5 ? 1 : -1;
     const close = open + dir * body + drift;
-    const high = Math.max(open, close) + Math.random() * vol * 0.4;
-    const low = Math.min(open, close) - Math.random() * vol * 0.4;
-    candles.push({ open, high, low, close });
+    const high  = Math.max(open, close) + Math.random() * vol * 0.4;
+    const low   = Math.min(open, close) - Math.random() * vol * 0.4;
+    candles.push({ time: now - (count - 1 - i) * granSecs, open, high, low, close });
     price = close;
   }
   return candles;
@@ -309,25 +433,42 @@ function getSession(): { name: string; quality: "OPTIMAL" | "GOOD" | "AVOID" } {
 // DXY SENTIMENT  (USD pairs only)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function getDXYSentiment(pair: string): "BULLISH_USD" | "BEARISH_USD" | "NEUTRAL" {
-  const usdPairs = ["EURUSD","GBPUSD","AUDUSD","NZDUSD","USDJPY","USDCAD","USDCHF","USDCHF","XAUUSD"];
+async function getDXYSentiment(pair: string): Promise<"BULLISH_USD" | "BEARISH_USD" | "NEUTRAL"> {
+  const usdPairs = ["EURUSD","GBPUSD","AUDUSD","NZDUSD","USDJPY","USDCAD","USDCHF","XAUUSD"];
   if (!usdPairs.includes(pair)) return "NEUTRAL";
-  // Simulate DXY direction from a seeded random (consistent per hour)
+  try {
+    const dxy = await fetchRealCandles("DXY", "H1", 10);
+    if (dxy.length >= 5) {
+      const chg = dxy[dxy.length - 1].close - dxy[dxy.length - 5].close;
+      if (chg >  0.05) return "BULLISH_USD";
+      if (chg < -0.05) return "BEARISH_USD";
+      return "NEUTRAL";
+    }
+  } catch { /* fall through */ }
   const seed = Math.floor(Date.now() / 3_600_000);
   const pseudo = Math.sin(seed * 9301 + 49297) * 0.5 + 0.5;
   return pseudo > 0.55 ? "BULLISH_USD" : pseudo < 0.45 ? "BEARISH_USD" : "NEUTRAL";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HTF BIAS  (simulates what D1/W1 says — stable per hour)
+// HTF BIAS  (real D1 candles — 20-bar moving average slope)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function getHTFBias(pair: string): "BULLISH" | "BEARISH" | "RANGING" {
+async function getHTFBias(pair: string): Promise<"BULLISH" | "BEARISH" | "RANGING"> {
+  try {
+    const d1 = await fetchRealCandles(pair, "D1", 20);
+    if (d1.length >= 10) {
+      const old5avg = d1.slice(-10, -5).reduce((s, c) => s + c.close, 0) / 5;
+      const new5avg = d1.slice(-5).reduce((s, c) => s + c.close, 0) / 5;
+      const pct = (new5avg - old5avg) / old5avg;
+      if (pct >  0.002) return "BULLISH";
+      if (pct < -0.002) return "BEARISH";
+      return "RANGING";
+    }
+  } catch { /* fall through */ }
   const seed = Math.floor(Date.now() / 14_400_000) + pair.charCodeAt(0);
   const pseudo = Math.sin(seed * 12345.6789) * 0.5 + 0.5;
-  if (pseudo > 0.55) return "BULLISH";
-  if (pseudo < 0.45) return "BEARISH";
-  return "RANGING";
+  return pseudo > 0.55 ? "BULLISH" : pseudo < 0.45 ? "BEARISH" : "RANGING";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -451,11 +592,9 @@ _doFetchPrices().catch(() => {});
 // MAIN ANALYSIS ENGINE
 // ─────────────────────────────────────────────────────────────────────────────
 
-function generateAnalysis(pair: string, timeframe: string, basePrice: number) {
+async function generateAnalysis(pair: string, timeframe: string, basePrice: number) {
   const GRAN_SECS: Record<string, number> = { M1: 60, M5: 300, M15: 900, M30: 1800, H1: 3600, H4: 14400, D1: 86400 };
   const granSecs   = GRAN_SECS[timeframe] || 3600;
-  const nowSec     = Math.floor(Date.now() / 1000);
-  const alignedNow = Math.floor(nowSec / granSecs) * granSecs;
 
   const isJpy      = pair.includes("JPY");
   const isGold     = pair === "XAUUSD";
@@ -465,8 +604,17 @@ function generateAnalysis(pair: string, timeframe: string, basePrice: number) {
   const decimals   = isSynthetic ? 2 : isCrypto && basePrice > 100 ? 2 : isCrypto ? 4 : isJpy || isGold || isCommodity ? 2 : 5;
   const atrPct     = isSynthetic ? 0.008 : isCrypto ? 0.012 : isGold ? 0.004 : isCommodity ? 0.006 : isJpy ? 0.003 : 0.0025;
 
-  // ── Generate candles & run indicators ──────────────────────────────────────
-  const candles = generateCandles(basePrice, atrPct, 150);
+  // ── Fetch real OHLCV candles; fall back to simulation only for synthetics ──
+  let candles: CandleWithTime[];
+  const real = await fetchRealCandles(pair, timeframe, 150);
+  if (real.length >= 30) {
+    candles = real;
+    console.log(`[analysis] ${pair}/${timeframe}: ${candles.length} real candles (last close ${candles[candles.length-1].close})`);
+  } else {
+    candles = generateSimulatedCandles(basePrice, atrPct, 150, granSecs);
+    if (!isSynthetic) console.warn(`[analysis] ${pair}/${timeframe}: no real data, using simulation`);
+  }
+
   const atr     = calcATR(candles, 14);
   const rsi     = calcRSI(candles, 14);
   const macd    = calcMACD(candles);
@@ -486,9 +634,8 @@ function generateAnalysis(pair: string, timeframe: string, basePrice: number) {
   const divergence   = detectRSIDivergence(candles);
   const candlePattern = detectCandlePattern(candles, atr);
   const pdZone       = premiumDiscount(candles);
-  const htfBias      = getHTFBias(pair);
+  const [htfBias, dxySentiment] = await Promise.all([getHTFBias(pair), getDXYSentiment(pair)]);
   const session      = getSession();
-  const dxySentiment = getDXYSentiment(pair);
   const htfTrend     = structureTrend !== "RANGING" ? structureTrend : htfBias;
 
   // ── Fibonacci OTE ──────────────────────────────────────────────────────────
@@ -688,9 +835,9 @@ function generateAnalysis(pair: string, timeframe: string, basePrice: number) {
     dxySentiment,
     bullScore,
     bearScore,
-    // ── Chart Drawing Data ──
-    chartCandles: candles.map((c, i) => ({
-      time:  alignedNow - (candles.length - 1 - i) * granSecs,
+    // ── Chart Drawing Data (real timestamps from fetched candles) ──
+    chartCandles: candles.map(c => ({
+      time:  c.time,
       open:  parseFloat(c.open.toFixed(decimals)),
       high:  parseFloat(c.high.toFixed(decimals)),
       low:   parseFloat(c.low.toFixed(decimals)),
@@ -770,7 +917,7 @@ router.post("/analyze", async (req, res) => {
   const { pair, timeframe } = parsed.data;
   const prices   = await getLivePrices();
   const basePrice = prices[pair] ?? FALLBACK_PRICES[pair] ?? 1.0;
-  const analysis = generateAnalysis(pair, timeframe, basePrice);
+  const analysis = await generateAnalysis(pair, timeframe, basePrice);
   res.json(analysis);
 });
 
@@ -781,8 +928,8 @@ router.post("/mtf-bias", async (req, res) => {
   const prices    = await getLivePrices();
   const basePrice = prices[pair] ?? FALLBACK_PRICES[pair] ?? 1.0;
   const timeframes = ["M15", "H1", "H4", "D1"];
-  const results = timeframes.map(tf => {
-    const a = generateAnalysis(pair, tf, basePrice);
+  const results = await Promise.all(timeframes.map(async tf => {
+    const a = await generateAnalysis(pair, tf, basePrice);
     const bullPct = a.signal === "BUY" ? Math.round(50 + (a.confidenceScore - 50) * 0.6) :
                     a.signal === "SELL" ? Math.round(50 - (a.confidenceScore - 50) * 0.6) : 50;
     return {
@@ -792,7 +939,7 @@ router.post("/mtf-bias", async (req, res) => {
       trend: a.trend,
       bullPct,
     };
-  });
+  }));
   const bullCount = results.filter(r => r.signal === "BUY").length;
   const bearCount = results.filter(r => r.signal === "SELL").length;
   const alignment =
