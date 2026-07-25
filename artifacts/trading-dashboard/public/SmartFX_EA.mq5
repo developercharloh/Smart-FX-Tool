@@ -21,9 +21,10 @@ input bool   InpTradeSynthetics = false;    // Trade Synthetic Indices
 
 //--- Globals
 CTrade   g_trade;
-string   g_lastId    = "0";
-datetime g_lastPoll  = 0;
-int      g_trades    = 0;
+string   g_lastId      = "0";
+datetime g_lastPoll    = 0;
+int      g_trades      = 0;
+datetime g_lastBalance = 0;
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -50,7 +51,7 @@ void OnDeinit(const int reason)
    Print("SmartFX EA stopped. Reason: ", reason);
 }
 
-void OnTimer() { PollAndTrade(); }
+void OnTimer() { PollAndTrade(); ReportBalance(); }
 
 //+------------------------------------------------------------------+
 //| Main poll + trade loop                                            |
@@ -171,6 +172,45 @@ void PollAndTrade()
    g_lastPoll = TimeCurrent();
    Comment("SmartFX v2.0 | Last poll: ", TimeToString(g_lastPoll, TIME_MINUTES),
            " | Trades: ", g_trades);
+}
+
+//+------------------------------------------------------------------+
+//| Report MT5 account balance to SmartFX API                        |
+//+------------------------------------------------------------------+
+void ReportBalance()
+{
+   // Only report once per minute to avoid flooding
+   if (TimeCurrent() - g_lastBalance < 60) return;
+   g_lastBalance = TimeCurrent();
+
+   long   login       = AccountInfoInteger(ACCOUNT_LOGIN);
+   double balance     = AccountInfoDouble(ACCOUNT_BALANCE);
+   double equity      = AccountInfoDouble(ACCOUNT_EQUITY);
+   string currency    = AccountInfoString(ACCOUNT_CURRENCY);
+   string server      = AccountInfoString(ACCOUNT_SERVER);
+   bool   isDemo      = (AccountInfoInteger(ACCOUNT_TRADE_MODE) == ACCOUNT_TRADE_MODE_DEMO);
+   string accountType = isDemo ? "demo" : "real";
+
+   string json = StringFormat(
+      "{\"login\":\"%d\",\"balance\":%.2f,\"equity\":%.2f,"
+      "\"currency\":\"%s\",\"server\":\"%s\",\"accountType\":\"%s\"}",
+      login, balance, equity, currency, server, accountType
+   );
+
+   string url = InpApiUrl + "/api/ea/balance";
+   char   postData[], response[];
+   string respHeaders;
+   StringToCharArray(json, postData, 0, StringLen(json));
+
+   int code = WebRequest("POST", url,
+      "Content-Type: application/json\r\n",
+      5000, postData, response, respHeaders);
+
+   if (code == 200)
+      Print("SmartFX: Balance reported — ", currency, " ", DoubleToString(balance, 2),
+            " (", accountType, " #", login, ")");
+   else if (code == -1)
+      Print("SmartFX: Balance report blocked (add URL to WebRequest list)");
 }
 
 //+------------------------------------------------------------------+

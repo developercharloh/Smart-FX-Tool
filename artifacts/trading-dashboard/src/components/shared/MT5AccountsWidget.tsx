@@ -28,15 +28,34 @@ export function MT5AccountsWidget() {
     setLoading(true);
     setError(null);
     try {
+      // ── Try EA balance first (reported by the running MT5 EA) ─────────────
+      const eaRes  = await fetch(`${BASE}/api/ea/balance`);
+      const eaData = eaRes.ok ? await eaRes.json() : [];
+
+      if (Array.isArray(eaData) && eaData.length > 0) {
+        // Map EA balance format → MT5Account format
+        const mapped: MT5Account[] = eaData.map((b: any) => ({
+          login:       String(b.login),
+          balance:     Number(b.balance) || 0,
+          currency:    String(b.currency || "USD"),
+          accountType: b.accountType === "real" ? "real" : "demo",
+          name:        b.accountType === "real" ? "Real Account" : "Demo Account",
+          server:      String(b.server || "Deriv-Server"),
+        }));
+        setAccounts(mapped);
+        setLastFetch(new Date());
+        return;
+      }
+
+      // ── Fall back to Deriv API if EA hasn't reported yet ─────────────────
       const r = await fetch(`${BASE}/api/deriv/mt5-accounts`);
       const text = await r.text();
       let data: any;
       try { data = JSON.parse(text); } catch { throw new Error(text); }
       if (!r.ok || data.error) {
         const msg: string = data.error ?? text;
-        // Surface a friendlier hint for the most common auth failure
         if (msg.toLowerCase().includes("invalid") || msg.toLowerCase().includes("token")) {
-          throw new Error("API token rejected — regenerate it with Admin permission on Deriv (see below)");
+          throw new Error("EA not yet connected — attach SmartFX_EA to a chart in MT5 to see live balance");
         }
         throw new Error(msg);
       }

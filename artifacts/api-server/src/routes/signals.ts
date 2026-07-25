@@ -1070,4 +1070,89 @@ router.delete("/:id", async (req, res) => {
   res.status(204).send();
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SERVER-SIDE AUTO SCANNER  (runs every 5 min without browser)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function startAutoScanner() {
+  const SCAN_INTERVAL_MS  = 5 * 60 * 1000;   // every 5 minutes
+  const MIN_CONFIDENCE    = 80;
+  const EXPIRE_AFTER_HRS  = 4;
+  const SCAN_TIMEFRAMES   = ["H1", "M15"];
+
+  async function runScan() {
+    try {
+      const marketStatus = getMarketStatus();
+      const prices       = await getLivePrices();
+
+      // ── Expire stale ACTIVE signals ──────────────────────────────────────
+      const cutoffTime = new Date(Date.now() - EXPIRE_AFTER_HRS * 3_600_000);
+      const active = await db.select().from(signalsTable)
+        .where(eq(signalsTable.status, "ACTIVE"));
+      for (const sig of active) {
+        if (new Date(sig.createdAt!) < cutoffTime) {
+          await db.update(signalsTable)
+            .set({ status: "EXPIRED" })
+            .where(eq(signalsTable.id, sig.id));
+        }
+      }
+
+      // ── Only scan pairs currently open ───────────────────────────────────
+      const openPairs = SCANNER_DEFAULT_PAIRS.filter(p => isPairTradeable(p, marketStatus));
+      if (openPairs.length === 0) {
+        console.log("[autoScanner] Market closed — skipping scan");
+        return;
+      }
+
+      const tasks = openPairs.flatMap(pair =>
+        SCAN_TIMEFRAMES.map(tf => ({ pair, tf }))
+      );
+
+      const settled = await Promise.allSettled(
+        tasks.map(async ({ pair, tf }) => {
+          const basePrice = prices[pair] ?? FALLBACK_PRICES[pair] ?? 1.0;
+          return generateAnalysis(pair, tf, basePrice);
+        })
+      );
+
+      const highConf = settled
+        .filter((r): r is PromiseFulfilledResult<any> => r.status === "fulfilled")
+        .map(r => r.value)
+        .filter(a => a.signal !== "NEUTRAL" && a.confidenceScore >= MIN_CONFIDENCE)
+        .sort((a, b) => b.confidenceScore - a.confidenceScore)
+        .slice(0, 10); // cap at 10 per cycle
+
+      for (const sig of highConf) {
+        const [saved] = await db.insert(signalsTable).values({
+          pair:            sig.pair,
+          signal:          sig.signal,
+          timeframe:       sig.timeframe,
+          entry:           sig.entry,
+          stopLoss:        sig.stopLoss,
+          takeProfit:      sig.takeProfit,
+          confidenceScore: sig.confidenceScore,
+          reasons:         sig.reasons,
+          structureType:   sig.structureType,
+          trend:           sig.trend,
+          riskRewardRatio: sig.riskRewardRatio,
+          status:          "ACTIVE",
+        } as any).returning();
+        sendNotifications(saved).catch(() => {});
+      }
+
+      console.log(
+        `[autoScanner] Scanned ${openPairs.length} pairs × ${SCAN_TIMEFRAMES.length} TFs` +
+        ` → ${highConf.length} high-confidence signals saved`
+      );
+    } catch (err) {
+      console.error("[autoScanner] Error:", err);
+    }
+  }
+
+  // Run immediately on startup, then every 5 minutes
+  runScan();
+  setInterval(runScan, SCAN_INTERVAL_MS);
+  console.log(`[autoScanner] Started — scanning every ${SCAN_INTERVAL_MS / 60_000} min`);
+}
+
 export default router;
