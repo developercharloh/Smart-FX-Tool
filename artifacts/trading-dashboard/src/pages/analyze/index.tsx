@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import {
   Zap, Activity, ShieldAlert, ArrowRight, BarChart2,
-  Clock, Layers, Target, BarChart, Waves,
+  Clock, Layers, Target, BarChart, Waves, ChevronDown,
 } from "lucide-react";
 import { ConfidenceGauge } from "@/components/shared/ConfidenceGauge";
 import { TrendBadge } from "@/components/shared/TrendBadge";
@@ -21,6 +21,24 @@ import { PositionSizeCalc } from "@/components/shared/PositionSizeCalc";
 import { HistoryBar } from "@/components/shared/HistoryBar";
 import { useAnalysisHistory } from "@/hooks/useAnalysisHistory";
 import { useChart } from "@/contexts/ChartContext";
+
+const PAIR_GROUPS = [
+  { label: "Forex Majors",       symbols: ["EURUSD","GBPUSD","USDJPY","AUDUSD","USDCAD","NZDUSD","USDCHF"] },
+  { label: "Forex Crosses",      symbols: ["GBPJPY","EURJPY","EURGBP","EURCHF","EURCAD","GBPCAD","AUDCAD","CADJPY","AUDNZD","AUDCHF","GBPCHF","NZDJPY"] },
+  { label: "Cryptocurrency",     symbols: ["BTCUSD","ETHUSD","XRPUSD","BNBUSDT","SOLUSDT","ADAUSDT","DOTUSD","AVAXUSDT","DOGEUSD","MATICUSDT","LINKUSDT","LTCUSD"] },
+  { label: "Commodities",        symbols: ["XAUUSD","XAGUSD","XPTUSD","USOIL","UKOIL","NATGAS","COPPER"] },
+  { label: "Volatility Indices", symbols: ["R_10","R_25","R_50","R_75","R_100"] },
+  { label: "Volatility 1s",      symbols: ["1HZ10V","1HZ25V","1HZ50V","1HZ75V","1HZ100V"] },
+  { label: "Boom & Crash",       symbols: ["BOOM300","BOOM500","BOOM1000","CRASH300","CRASH500","CRASH1000"] },
+  { label: "Jump Indices",       symbols: ["JD10","JD25","JD50","JD75","JD100"] },
+];
+
+const TIMEFRAMES = [
+  { value: "M15", label: "M15", sub: "15 min" },
+  { value: "H1",  label: "H1",  sub: "1 hour" },
+  { value: "H4",  label: "H4",  sub: "4 hours" },
+  { value: "D1",  label: "D1",  sub: "Daily" },
+];
 
 const SYNTHETIC_SYMBOLS = new Set([
   "R_10","R_25","R_50","R_75","R_100",
@@ -136,7 +154,7 @@ function VolatilityBadge({ entry, stopLoss }: { entry: number; stopLoss: number 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 export default function Analyze() {
-  const { pair, timeframe } = useChart();
+  const { pair, timeframe, setPair, setTimeframe } = useChart();
   const analyzeMutation = useAnalyzeSignal();
   const createMutation  = useCreateSignal();
   const { toast }       = useToast();
@@ -161,7 +179,7 @@ export default function Analyze() {
 
   function runAnalysis() {
     if (!pair) {
-      toast({ variant: "destructive", title: "No instrument selected", description: "Use the sidebar to choose an instrument first." });
+      toast({ variant: "destructive", title: "No instrument selected", description: "Select an instrument above before running analysis." });
       return;
     }
     setHistoryResult(null);
@@ -196,24 +214,123 @@ export default function Analyze() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground font-mono">Live Analyze</h1>
-          <p className="text-muted-foreground mt-1">
-            Select an instrument and timeframe from the menu ( ☰ ) on the right, then run analysis.
-          </p>
+
+      {/* ── Page header ───────────────────────────────────────────────────────── */}
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight text-foreground font-mono">AI Scanner</h1>
+        <p className="text-muted-foreground mt-1">Select an instrument and timeframe, then run AI analysis.</p>
+      </div>
+
+      {/* ── Instrument + Timeframe Selector ──────────────────────────────────── */}
+      <div
+        style={{
+          background: "rgba(11,15,25,0.7)",
+          border: "1px solid rgba(0,255,255,0.1)",
+          boxShadow: "0 4px 32px rgba(0,0,0,0.4), 0 0 0 1px rgba(0,255,255,0.04)",
+          backdropFilter: "blur(16px)",
+        }}
+        className="rounded-[16px] p-5 space-y-4"
+      >
+        <div className="flex flex-col md:flex-row gap-4">
+          {/* Instrument select */}
+          <div className="flex-1 space-y-1.5">
+            <label className="text-xs font-bold uppercase tracking-widest text-slate-500">Instrument</label>
+            <div className="relative">
+              <select
+                value={pair}
+                onChange={e => setPair(e.target.value)}
+                style={{
+                  background: "rgba(255,255,255,0.04)",
+                  border: pair ? "1px solid rgba(0,255,255,0.25)" : "1px solid rgba(255,255,255,0.08)",
+                  boxShadow: pair ? "0 0 12px rgba(0,255,255,0.06)" : "none",
+                }}
+                className="w-full appearance-none rounded-[10px] px-4 py-3 text-sm font-mono text-white focus:outline-none focus:border-cyan-400/40 cursor-pointer pr-10 transition-all duration-200"
+              >
+                <option value="" disabled style={{ background: "#0b0f19" }}>Select instrument…</option>
+                {PAIR_GROUPS.map(g => (
+                  <optgroup key={g.label} label={g.label} style={{ background: "#0b0f19", color: "#64748b" }}>
+                    {g.symbols.map(s => (
+                      <option key={s} value={s} style={{ background: "#0b0f19", color: "#fff" }}>{s}</option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
+            </div>
+          </div>
+
+          {/* Timeframe pills */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold uppercase tracking-widest text-slate-500">Timeframe</label>
+            <div className="flex items-center gap-2 h-[46px]">
+              {TIMEFRAMES.map(tf => {
+                const active = timeframe === tf.value;
+                return (
+                  <button
+                    key={tf.value}
+                    onClick={() => setTimeframe(tf.value)}
+                    style={active ? {
+                      background: "rgba(0,255,255,0.1)",
+                      border: "1px solid rgba(0,255,255,0.3)",
+                      boxShadow: "0 0 12px rgba(0,255,255,0.12)",
+                      color: "#00ffff",
+                    } : {
+                      background: "rgba(255,255,255,0.04)",
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      color: "#94a3b8",
+                    }}
+                    className="flex flex-col items-center justify-center w-16 h-full rounded-[10px] transition-all duration-200 hover:border-cyan-400/25 hover:text-white"
+                  >
+                    <span className="text-sm font-bold leading-tight">{tf.label}</span>
+                    <span className="text-[9px] opacity-60">{tf.sub}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Run Analysis button */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold uppercase tracking-widest text-transparent select-none">Run</label>
+            <button
+              onClick={runAnalysis}
+              disabled={analyzeMutation.isPending || !pair}
+              style={pair && !analyzeMutation.isPending ? {
+                background: "linear-gradient(135deg, rgba(0,255,255,0.15), rgba(139,92,246,0.15))",
+                border: "1px solid rgba(0,255,255,0.3)",
+                boxShadow: "0 0 20px rgba(0,255,255,0.12), inset 0 1px 0 rgba(255,255,255,0.05)",
+              } : {
+                background: "rgba(255,255,255,0.04)",
+                border: "1px solid rgba(255,255,255,0.06)",
+              }}
+              className="h-[46px] px-6 rounded-[10px] text-sm font-bold text-white disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200 flex items-center gap-2 whitespace-nowrap hover:scale-[1.02] active:scale-[0.98]"
+            >
+              {analyzeMutation.isPending
+                ? <><Activity className="w-4 h-4 animate-spin" /> Analyzing…</>
+                : <><Zap className="w-4 h-4 text-cyan-400" /> Run Analysis</>}
+            </button>
+          </div>
         </div>
-        <Button
-          onClick={runAnalysis}
-          className="gap-2 font-bold"
-          size="lg"
-          disabled={analyzeMutation.isPending || !pair}
-        >
-          {analyzeMutation.isPending
-            ? <><Activity className="w-4 h-4 animate-spin" /> Analyzing...</>
-            : <><Zap className="w-4 h-4" /> Run Analysis</>}
-        </Button>
+
+        {/* Selected pair display */}
+        {pair && (
+          <div className="flex items-center gap-3 pt-1 border-t border-white/[0.04]">
+            <span
+              style={{ background: "rgba(0,255,255,0.08)", border: "1px solid rgba(0,255,255,0.2)", color: "#00e5e5" }}
+              className="font-mono text-sm font-bold px-3 py-1 rounded-[7px]"
+            >
+              {pair}
+            </span>
+            <span className="text-slate-500 text-sm">·</span>
+            <span className="text-slate-400 text-sm">{timeframe} timeframe</span>
+            {PAIR_LABELS[pair] && (
+              <>
+                <span className="text-slate-500 text-sm">·</span>
+                <span className="text-slate-500 text-sm">{PAIR_LABELS[pair]}</span>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Analysis History ─────────────────────────────────────────────────── */}
@@ -225,10 +342,18 @@ export default function Analyze() {
 
       {/* No pair selected */}
       {!pair && (
-        <div className="flex flex-col items-center justify-center py-24 bg-card/20 border border-dashed border-border rounded-xl">
-          <Zap className="w-12 h-12 text-muted-foreground/30 mb-4" />
-          <h3 className="text-lg font-bold font-mono text-muted-foreground">No instrument selected</h3>
-          <p className="text-sm text-muted-foreground mt-1">Open the menu ( ☰ ) on the right, pick an instrument and timeframe to load the chart.</p>
+        <div
+          style={{ border: "1px dashed rgba(0,255,255,0.1)", background: "rgba(0,255,255,0.02)" }}
+          className="flex flex-col items-center justify-center py-20 rounded-[16px]"
+        >
+          <div
+            style={{ background: "rgba(0,255,255,0.06)", border: "1px solid rgba(0,255,255,0.12)" }}
+            className="w-16 h-16 rounded-[16px] flex items-center justify-center mb-4"
+          >
+            <Zap className="w-8 h-8 text-cyan-400/50" />
+          </div>
+          <h3 className="text-lg font-bold font-mono text-slate-500">No instrument selected</h3>
+          <p className="text-sm text-slate-600 mt-1">Pick an instrument above and click Run Analysis to begin.</p>
         </div>
       )}
 
