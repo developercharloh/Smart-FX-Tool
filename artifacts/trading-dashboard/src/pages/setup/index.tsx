@@ -23,7 +23,7 @@ const ACCOUNTS = [
   {
     label:  "Demo Account",
     type:   "DEMO",
-    login:  "40991354",
+    login:  "32335021",
     server: "Deriv-Demo",
     broker: "Deriv.com Limited",
     badge:  "bg-slate-700 text-slate-300",
