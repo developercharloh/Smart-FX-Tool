@@ -1,14 +1,13 @@
 /**
  * DerivTradePanel
- * Token setup + trade settings + open positions.
- * Reads from DerivTradeContext so any component can trigger trades.
+ * Server-side token — no input needed. Shows balance, settings, positions.
  */
 
 import { useState, useEffect } from "react";
 import {
-  Zap, X, Eye, EyeOff, ExternalLink, Settings2,
-  RefreshCw, TrendingUp, TrendingDown, CheckCircle2,
-  AlertCircle, Wallet, ChevronDown, ChevronUp,
+  Zap, X, Settings2, RefreshCw, TrendingUp, TrendingDown,
+  CheckCircle2, AlertCircle, Wallet, ChevronDown, ChevronUp,
+  WifiOff, Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDerivTradeCtx } from "@/contexts/DerivTradeContext";
@@ -23,53 +22,9 @@ function relTime(ms: number) {
   return `${Math.floor(s / 60)}m ago`;
 }
 
-// ─── Token setup ──────────────────────────────────────────────────────────────
-
-function TokenSetup({ onSave }: { onSave: (t: string) => void }) {
-  const [val, setVal]   = useState("");
-  const [show, setShow] = useState(false);
-
-  return (
-    <div className="space-y-3">
-      <div className="text-xs text-slate-400 space-y-1">
-        <p>Create a token with <strong className="text-white">Read + Trade</strong> scope:</p>
-        <a href="https://app.deriv.com/account/api-token" target="_blank" rel="noreferrer"
-          className="flex items-center gap-1 text-cyan-400 hover:text-cyan-300 transition-all text-[11px]">
-          app.deriv.com/account/api-token <ExternalLink className="w-3 h-3" />
-        </a>
-      </div>
-      <div className="flex gap-2">
-        <div className="relative flex-1">
-          <input
-            type={show ? "text" : "password"}
-            value={val}
-            onChange={e => setVal(e.target.value)}
-            placeholder="Paste your Deriv API token…"
-            style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)" }}
-            className="w-full rounded-[8px] px-3 py-2.5 text-sm text-white placeholder-slate-600 font-mono focus:outline-none focus:border-cyan-400/50 pr-10"
-          />
-          <button onClick={() => setShow(v => !v)}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white">
-            {show ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-          </button>
-        </div>
-        <button
-          onClick={() => val.trim() && onSave(val.trim())}
-          disabled={!val.trim()}
-          style={{ background: "rgba(0,255,255,0.12)", border: "1px solid rgba(0,255,255,0.3)" }}
-          className="px-4 py-2 rounded-[8px] text-sm font-bold text-cyan-400 disabled:opacity-40 hover:bg-cyan-400/20 transition-all whitespace-nowrap"
-        >Connect</button>
-      </div>
-    </div>
-  );
-}
-
-// ─── Position card ────────────────────────────────────────────────────────────
-
 function PositionCard({ pos, onClose }: { pos: OpenPosition; onClose: () => void }) {
   const isBuy    = pos.direction === "BUY";
-  const profit   = pos.profit;
-  const isProfit = profit >= 0;
+  const isProfit = pos.profit >= 0;
 
   return (
     <div
@@ -88,14 +43,18 @@ function PositionCard({ pos, onClose }: { pos: OpenPosition; onClose: () => void
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-bold text-white font-mono">{pos.symbol.replace("frx","").replace("cry","")}</span>
-          <span className={cn("text-[10px] font-bold", isBuy ? "text-emerald-400" : "text-rose-400")}>{pos.direction}</span>
+          <span className="text-xs font-bold text-white font-mono">
+            {pos.symbol.replace("frx","").replace("cry","")}
+          </span>
+          <span className={cn("text-[10px] font-bold", isBuy ? "text-emerald-400" : "text-rose-400")}>
+            {pos.direction}
+          </span>
           <span className="text-[10px] text-slate-600">#{pos.contractId}</span>
         </div>
         <div className="flex items-center gap-3 mt-0.5">
           <span className="text-[10px] text-slate-500">Stake ${pos.stake.toFixed(2)}</span>
           <span className={cn("text-[10px] font-bold font-mono", isProfit ? "text-emerald-400" : "text-rose-400")}>
-            {isProfit ? "+" : ""}{profit.toFixed(2)}
+            {isProfit ? "+" : ""}{pos.profit.toFixed(2)}
           </span>
           <span className="text-[10px] text-slate-600">{relTime(pos.openedAt)}</span>
         </div>
@@ -109,31 +68,23 @@ function PositionCard({ pos, onClose }: { pos: OpenPosition; onClose: () => void
   );
 }
 
-// ─── Main panel ───────────────────────────────────────────────────────────────
-
 export function DerivTradePanel() {
   const {
-    token, saveToken, removeToken,
+    connected, balance, refreshBalance,
     settings, saveSettings,
     status, lastResult,
-    balance, refreshBalance,
     positions, refreshPositions, closePos,
   } = useDerivTradeCtx();
 
   const [expanded,     setExpanded]     = useState(true);
   const [showSettings, setShowSettings] = useState(false);
+  const [refreshing,   setRefreshing]   = useState(false);
 
-  useEffect(() => {
-    if (token) {
-      refreshBalance();
-      refreshPositions();
-    }
-  }, [token]);
-
-  const statusColor =
-    status === "done"  ? "text-emerald-400" :
-    status === "error" ? "text-rose-400"    :
-    "text-amber-400";
+  async function handleRefresh() {
+    setRefreshing(true);
+    await Promise.all([refreshBalance(), refreshPositions()]);
+    setRefreshing(false);
+  }
 
   return (
     <div
@@ -145,43 +96,43 @@ export function DerivTradePanel() {
         <div className="flex items-center gap-2.5 flex-wrap">
           <Zap className="w-5 h-5 text-cyan-400" />
           <span className="text-sm font-bold text-white tracking-wide">Deriv Trade</span>
-          {token && (
+
+          {/* Connection status */}
+          {connected ? (
             <span style={{ background: "rgba(52,211,153,0.1)", border: "1px solid rgba(52,211,153,0.25)" }}
               className="text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded-full">
               Connected
             </span>
+          ) : (
+            <span style={{ background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.2)" }}
+              className="flex items-center gap-1 text-[10px] font-bold text-rose-400 px-2 py-0.5 rounded-full">
+              <WifiOff className="w-2.5 h-2.5" /> Disconnected
+            </span>
           )}
-          {token && balance && (
+
+          {/* Live balance */}
+          {connected && balance ? (
             <span style={{ background: "rgba(0,255,255,0.06)", border: "1px solid rgba(0,255,255,0.18)" }}
               className="flex items-center gap-1 text-[11px] font-bold text-cyan-300 px-2.5 py-0.5 rounded-full font-mono">
               <Wallet className="w-3 h-3" />
               {balance.currency} {balance.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
-          )}
-          {token && !balance && (
-            <span className="text-[10px] text-slate-600 animate-pulse">Loading balance…</span>
-          )}
+          ) : connected ? (
+            <span className="text-[10px] text-slate-600 animate-pulse">Loading…</span>
+          ) : null}
         </div>
+
         <div className="flex items-center gap-2">
-          {token && (
-            <>
-              <button onClick={() => setShowSettings(v => !v)}
-                style={{ background: showSettings ? "rgba(0,255,255,0.08)" : "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}
-                className="w-7 h-7 rounded-[7px] flex items-center justify-center text-slate-500 hover:text-white transition-all">
-                <Settings2 className="w-3.5 h-3.5" />
-              </button>
-              <button onClick={refreshPositions}
-                style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}
-                className="w-7 h-7 rounded-[7px] flex items-center justify-center text-slate-500 hover:text-white transition-all">
-                <RefreshCw className="w-3.5 h-3.5" />
-              </button>
-              <button onClick={removeToken}
-                style={{ background: "rgba(248,113,113,0.07)", border: "1px solid rgba(248,113,113,0.2)" }}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-[8px] text-[11px] font-semibold text-rose-400 hover:bg-rose-500/15 transition-all">
-                <X className="w-3 h-3" /> Disconnect
-              </button>
-            </>
-          )}
+          <button onClick={() => setShowSettings(v => !v)}
+            style={{ background: showSettings ? "rgba(0,255,255,0.08)" : "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}
+            className="w-7 h-7 rounded-[7px] flex items-center justify-center text-slate-500 hover:text-white transition-all">
+            <Settings2 className="w-3.5 h-3.5" />
+          </button>
+          <button onClick={handleRefresh}
+            style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}
+            className="w-7 h-7 rounded-[7px] flex items-center justify-center text-slate-500 hover:text-white transition-all">
+            <RefreshCw className={cn("w-3.5 h-3.5", refreshing && "animate-spin")} />
+          </button>
           <button onClick={() => setExpanded(v => !v)} className="text-slate-500 hover:text-white transition-all">
             {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </button>
@@ -191,16 +142,20 @@ export function DerivTradePanel() {
       {expanded && (
         <div className="px-5 pb-5 space-y-4">
 
-          {/* Token setup */}
-          {!token && <TokenSetup onSave={saveToken} />}
+          {/* Not connected warning */}
+          {!connected && (
+            <div style={{ background: "rgba(248,113,113,0.05)", border: "1px solid rgba(248,113,113,0.15)" }}
+              className="rounded-[10px] px-4 py-3 text-xs text-rose-400">
+              Cannot reach Deriv API. Check that <strong>DERIV_API_TOKEN</strong> is set on the server and the token has <strong>Trade</strong> scope.
+            </div>
+          )}
 
           {/* Settings panel */}
-          {token && showSettings && (
+          {showSettings && (
             <div style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)" }}
               className="rounded-[12px] p-4 space-y-4">
               <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Trade Settings</p>
 
-              {/* Stake */}
               <div>
                 <p className="text-xs text-slate-400 mb-2">Stake per trade (USD)</p>
                 <div className="flex gap-2 flex-wrap">
@@ -217,7 +172,6 @@ export function DerivTradePanel() {
                 </div>
               </div>
 
-              {/* Multiplier */}
               <div>
                 <p className="text-xs text-slate-400 mb-2">Multiplier</p>
                 <div className="flex gap-2 flex-wrap">
@@ -236,8 +190,7 @@ export function DerivTradePanel() {
 
               <div style={{ background: "rgba(251,191,36,0.05)", border: "1px solid rgba(251,191,36,0.15)" }}
                 className="rounded-[8px] px-3 py-2 text-[10px] text-amber-400 leading-relaxed">
-                Current: <strong>${settings.stake} stake</strong> at <strong>x{settings.multiplier} multiplier</strong> — 
-                max loss ${settings.stake}, potential profit is unlimited while trade is open.
+                Current: <strong>${settings.stake} stake</strong> at <strong>x{settings.multiplier} multiplier</strong>
               </div>
             </div>
           )}
@@ -259,30 +212,26 @@ export function DerivTradePanel() {
           )}
 
           {/* Open positions */}
-          {token && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
-                  Open Positions {positions.length > 0 && `(${positions.length})`}
-                </p>
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+              Open Positions {positions.length > 0 && `(${positions.length})`}
+            </p>
+            {positions.length === 0 ? (
+              <div style={{ background: "rgba(255,255,255,0.02)", border: "1px dashed rgba(255,255,255,0.07)" }}
+                className="rounded-[10px] py-4 text-center">
+                <Wallet className="w-4 h-4 text-slate-600 mx-auto mb-1" />
+                <p className="text-xs text-slate-600">No open positions</p>
+                <p className="text-[10px] text-slate-700 mt-0.5">Execute a signal from the AI Scanner</p>
               </div>
-              {positions.length === 0 ? (
-                <div style={{ background: "rgba(255,255,255,0.02)", border: "1px dashed rgba(255,255,255,0.07)" }}
-                  className="rounded-[10px] py-4 text-center">
-                  <Wallet className="w-4 h-4 text-slate-600 mx-auto mb-1" />
-                  <p className="text-xs text-slate-600">No open positions</p>
-                  <p className="text-[10px] text-slate-700 mt-0.5">Execute a signal from the AI Scanner</p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {positions.map(pos => (
-                    <PositionCard key={pos.contractId} pos={pos}
-                      onClose={() => closePos(pos.contractId)} />
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+            ) : (
+              <div className="space-y-2">
+                {positions.map(pos => (
+                  <PositionCard key={pos.contractId} pos={pos}
+                    onClose={() => closePos(pos.contractId)} />
+                ))}
+              </div>
+            )}
+          </div>
 
         </div>
       )}
