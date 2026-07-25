@@ -452,6 +452,11 @@ _doFetchPrices().catch(() => {});
 // ─────────────────────────────────────────────────────────────────────────────
 
 function generateAnalysis(pair: string, timeframe: string, basePrice: number) {
+  const GRAN_SECS: Record<string, number> = { M1: 60, M5: 300, M15: 900, M30: 1800, H1: 3600, H4: 14400, D1: 86400 };
+  const granSecs   = GRAN_SECS[timeframe] || 3600;
+  const nowSec     = Math.floor(Date.now() / 1000);
+  const alignedNow = Math.floor(nowSec / granSecs) * granSecs;
+
   const isJpy      = pair.includes("JPY");
   const isGold     = pair === "XAUUSD";
   const isCrypto   = ["BTC","ETH","XRP","LTC","DOGE","DOT","BNB","SOL","ADA","AVAX","MATIC","LINK"].some(s => pair.startsWith(s));
