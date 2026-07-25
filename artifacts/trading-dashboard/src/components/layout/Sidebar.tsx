@@ -2,11 +2,10 @@ import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
   BarChart2, LayoutDashboard, Activity, Zap, Newspaper, Plus,
-  ChevronDown, LogOut, Key, Settings, Calculator, CalendarDays, Bell, BellOff,
+  ChevronDown, Settings, Calculator, CalendarDays, Bell, BellOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useChart } from "@/contexts/ChartContext";
-import { useAuth, Plan } from "@/hooks/useAuth";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 
 const NAV_LINKS = [
@@ -38,17 +37,9 @@ const TIMEFRAMES = [
   { value: "D1",  label: "D1 — Daily"   },
 ];
 
-const PLAN_BADGE: Record<Plan, { label: string; cls: string }> = {
-  monthly:   { label: "Monthly",  cls: "bg-blue-500/15 text-blue-400 border-blue-500/20" },
-  quarterly: { label: "3-Month",  cls: "bg-violet-500/15 text-violet-400 border-violet-500/20" },
-  yearly:    { label: "1-Year",   cls: "bg-amber-500/15 text-amber-400 border-amber-500/20" },
-  lifetime:  { label: "Lifetime", cls: "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" },
-};
-
 export function Sidebar() {
   const [location, navigate] = useLocation();
   const { pair, timeframe, setPair, setTimeframe } = useChart();
-  const { plan, logout } = useAuth();
   const { permission, requestPermission } = usePushNotifications();
 
   return (
@@ -65,12 +56,6 @@ export function Sidebar() {
             <p className="text-[10px] text-muted-foreground">Trading Dashboard</p>
           </div>
         </Link>
-        {plan && (
-          <div className={cn("mt-3 inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-bold", PLAN_BADGE[plan].cls)}>
-            <Key className="w-2.5 h-2.5" />
-            {PLAN_BADGE[plan].label}
-          </div>
-        )}
       </div>
 
       {/* Navigation */}
@@ -146,12 +131,6 @@ export function Sidebar() {
 
       <div className="flex-1" />
 
-      <div className="px-3 py-4 border-t border-border/50">
-        <button onClick={logout}
-          className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-rose-400 hover:bg-rose-500/10 transition-colors">
-          <LogOut className="w-4 h-4" /> Sign Out
-        </button>
-      </div>
     </aside>
   );
 }

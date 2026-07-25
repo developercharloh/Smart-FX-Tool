@@ -5,8 +5,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { ChartProvider } from "@/contexts/ChartContext";
-import { AuthProvider, useAuth } from "@/contexts/AuthContext";
-import { AccessGate } from "@/components/AccessGate";
 
 import Dashboard from "@/pages/dashboard";
 import SignalsList from "@/pages/signals/index";
@@ -27,21 +25,7 @@ const queryClient = new QueryClient({
   }
 });
 
-function AuthenticatedApp() {
-  const { authenticated, loading } = useAuth();
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-      </div>
-    );
-  }
-
-  if (!authenticated) {
-    return <AccessGate />;
-  }
-
+function MainApp() {
   return (
     <AppLayout>
       <Switch>
@@ -63,7 +47,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/xk-manage" component={AdminPanel} />
-      <Route component={AuthenticatedApp} />
+      <Route component={MainApp} />
     </Switch>
   );
 }
@@ -72,13 +56,11 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <AuthProvider>
-          <ChartProvider>
-            <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-              <Router />
-            </WouterRouter>
-          </ChartProvider>
-        </AuthProvider>
+        <ChartProvider>
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+            <Router />
+          </WouterRouter>
+        </ChartProvider>
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>
