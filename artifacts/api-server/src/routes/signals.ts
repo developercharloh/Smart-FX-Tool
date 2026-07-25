@@ -331,38 +331,127 @@ function getHTFBias(pair: string): "BULLISH" | "BEARISH" | "RANGING" {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// LIVE PRICE FETCHING  (60-second cache, falls back to reasonable defaults)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const FALLBACK_PRICES: Record<string, number> = {
+  // Forex
+  EURUSD: 1.0850, GBPUSD: 1.2700, USDJPY: 149.50,
+  AUDUSD: 0.6520, USDCAD: 1.3650, NZDUSD: 0.6010, USDCHF: 0.8960,
+  GBPJPY: 189.80, EURJPY: 162.30, EURGBP: 0.8530,
+  EURCHF: 0.9620, EURCAD: 1.4760, GBPCAD: 1.7160, AUDCAD: 0.8920, CADJPY: 109.60,
+  AUDNZD: 1.0850, AUDCHF: 0.5840, GBPCHF: 1.1390, NZDJPY: 89.90,
+  // Commodities
+  XAUUSD: 3300.0, XAGUSD: 33.00, XPTUSD: 1020.0,
+  USOIL: 68.50, UKOIL: 72.00, NATGAS: 3.10, COPPER: 4.50,
+  // Crypto (updated at startup; replaced each poll)
+  BTCUSD: 65000, ETHUSD: 3200, XRPUSD: 0.52, LTCUSD: 85.0,
+  DOGEUSD: 0.13, DOTUSD: 6.50, BNBUSDT: 560.0, SOLUSDT: 155.0,
+  ADAUSDT: 0.40, AVAXUSDT: 30.0, MATICUSDT: 0.55, LINKUSDT: 14.0,
+  // Deriv Synthetics (proprietary, no public feed)
+  R_10: 10245.32, R_25: 8932.15, R_50: 6543.78, R_75: 12876.44, R_100: 22345.67,
+  "1HZ10V": 3456.21, "1HZ25V": 7823.44, "1HZ50V": 5621.33, "1HZ75V": 9034.55, "1HZ100V": 18234.12,
+  BOOM300: 7823.50, BOOM500: 6543.20, BOOM1000: 5234.80,
+  CRASH300: 8912.30, CRASH500: 7234.60, CRASH1000: 5876.40,
+  JD10: 5234.12, JD25: 6891.34, JD50: 9123.56, JD75: 12456.78, JD100: 18765.43,
+};
+
+let _priceCache: Record<string, number> = { ...FALLBACK_PRICES };
+let _priceFetchedAt = 0;
+let _fetchInFlight: Promise<void> | null = null;
+
+async function _doFetchPrices(): Promise<void> {
+  const live: Record<string, number> = {};
+
+  // ── 1. Crypto via Binance (free, no auth) ───────────────────────────────────
+  try {
+    const symbols = encodeURIComponent(JSON.stringify([
+      "BTCUSDT","ETHUSDT","XRPUSDT","LTCUSDT","DOGEUSDT",
+      "DOTUSDT","BNBUSDT","SOLUSDT","ADAUSDT","AVAXUSDT","MATICUSDT","LINKUSDT",
+    ]));
+    const r = await fetch(`https://api.binance.com/api/v3/ticker/price?symbols=${symbols}`,
+      { signal: AbortSignal.timeout(6000) });
+    if (r.ok) {
+      const rows: Array<{ symbol: string; price: string }> = await r.json();
+      const MAP: Record<string, string> = {
+        BTCUSDT: "BTCUSD", ETHUSDT: "ETHUSD",  XRPUSDT:  "XRPUSD",
+        LTCUSDT: "LTCUSD", DOGEUSDT: "DOGEUSD", DOTUSDT:  "DOTUSD",
+        BNBUSDT: "BNBUSDT", SOLUSDT: "SOLUSDT", ADAUSDT:  "ADAUSDT",
+        AVAXUSDT: "AVAXUSDT", MATICUSDT: "MATICUSDT", LINKUSDT: "LINKUSDT",
+      };
+      for (const { symbol, price } of rows) {
+        if (MAP[symbol]) live[MAP[symbol]] = parseFloat(price);
+      }
+    }
+  } catch { /* fall back to cached/fallback */ }
+
+  // ── 2. Forex via Frankfurter (free, no auth, end-of-day ECB rates) ──────────
+  try {
+    const r = await fetch(
+      "https://api.frankfurter.app/latest?from=EUR&to=USD,GBP,JPY,AUD,CAD,NZD,CHF",
+      { signal: AbortSignal.timeout(6000) });
+    if (r.ok) {
+      const { rates }: { rates: Record<string, number> } = await r.json();
+      const { USD: u, GBP: g, JPY: j, AUD: a, CAD: c, NZD: n, CHF: ch } = rates;
+      // Majors
+      if (u)       live.EURUSD = u;
+      if (u && g)  live.GBPUSD = u / g;
+      if (j && u)  live.USDJPY = j / u;
+      if (u && a)  live.AUDUSD = u / a;
+      if (c && u)  live.USDCAD = c / u;
+      if (u && n)  live.NZDUSD = u / n;
+      if (ch && u) live.USDCHF = ch / u;
+      // Crosses derived from EUR rates
+      if (j)       live.EURJPY = j;
+      if (g)       live.EURGBP = g;
+      if (ch)      live.EURCHF = ch;
+      if (c)       live.EURCAD = c;
+      if (j && g)  live.GBPJPY = j / g;
+      if (c && g)  live.GBPCAD = c / g;
+      if (c && a)  live.AUDCAD = c / a;
+      if (j && c)  live.CADJPY = j / c;
+      if (n && a)  live.AUDNZD = n / a;
+      if (ch && a) live.AUDCHF = ch / a;
+      if (ch && g) live.GBPCHF = ch / g;
+      if (j && n)  live.NZDJPY = j / n;
+    }
+  } catch { /* fall back to cached/fallback */ }
+
+  // ── 3. Gold via metals.live (free, no auth) ──────────────────────────────────
+  try {
+    const r = await fetch("https://api.metals.live/v1/spot/gold",
+      { signal: AbortSignal.timeout(6000) });
+    if (r.ok) {
+      const data = await r.json();
+      // Response may be [{gold: 3320.5}] or {gold: 3320.5}
+      const gold = Array.isArray(data) ? data[0]?.gold : data?.gold;
+      if (gold && !isNaN(gold)) live.XAUUSD = parseFloat(gold);
+    }
+  } catch { /* keep fallback */ }
+
+  // Merge live prices on top of existing cache (never wipe synthetics fallbacks)
+  _priceCache = { ..._priceCache, ...live };
+  _priceFetchedAt = Date.now();
+}
+
+async function getLivePrices(): Promise<Record<string, number>> {
+  if (Date.now() - _priceFetchedAt > 60_000) {
+    if (!_fetchInFlight) {
+      _fetchInFlight = _doFetchPrices().finally(() => { _fetchInFlight = null; });
+    }
+    await _fetchInFlight;
+  }
+  return _priceCache;
+}
+
+// Kick off a fetch immediately on startup so the first request doesn't block
+_doFetchPrices().catch(() => {});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // MAIN ANALYSIS ENGINE
 // ─────────────────────────────────────────────────────────────────────────────
 
-function generateAnalysis(pair: string, timeframe: string) {
-  const GRAN_SECS: Record<string, number> = { M1: 60, M5: 300, M15: 900, M30: 1800, H1: 3600, H4: 14400, D1: 86400 };
-  const granSecs   = GRAN_SECS[timeframe] || 3600;
-  const nowSec     = Math.floor(Date.now() / 1000);
-  const alignedNow = Math.floor(nowSec / granSecs) * granSecs;
-
-  const pairPrices: Record<string, number> = {
-    // Forex
-    EURUSD: 1.0850, GBPUSD: 1.2700, USDJPY: 149.50,
-    AUDUSD: 0.6520, USDCAD: 1.3650, NZDUSD: 0.6010, USDCHF: 0.8960,
-    GBPJPY: 189.80, EURJPY: 162.30, EURGBP: 0.8530,
-    EURCHF: 0.9620, EURCAD: 1.4760, GBPCAD: 1.7160, AUDCAD: 0.8920, CADJPY: 109.60,
-    AUDNZD: 1.0850, AUDCHF: 0.5840, GBPCHF: 1.1390, NZDJPY: 89.90,
-    // Commodities
-    XAUUSD: 2340.0, XAGUSD: 29.50, XPTUSD: 980.0,
-    USOIL: 82.50, UKOIL: 86.20, NATGAS: 2.45, COPPER: 4.15,
-    // Crypto
-    BTCUSD: 68500, ETHUSD: 3450, XRPUSD: 0.52, LTCUSD: 88.0,
-    DOGEUSD: 0.148, DOTUSD: 7.80, BNBUSDT: 580.0, SOLUSDT: 155.0,
-    ADAUSDT: 0.45, AVAXUSDT: 38.0, MATICUSDT: 0.72, LINKUSDT: 14.50,
-    // Deriv Synthetics
-    R_10: 10245.32, R_25: 8932.15, R_50: 6543.78, R_75: 12876.44, R_100: 22345.67,
-    "1HZ10V": 3456.21, "1HZ25V": 7823.44, "1HZ50V": 5621.33, "1HZ75V": 9034.55, "1HZ100V": 18234.12,
-    BOOM300: 7823.50, BOOM500: 6543.20, BOOM1000: 5234.80,
-    CRASH300: 8912.30, CRASH500: 7234.60, CRASH1000: 5876.40,
-    JD10: 5234.12, JD25: 6891.34, JD50: 9123.56, JD75: 12456.78, JD100: 18765.43,
-  };
-
-  const basePrice  = pairPrices[pair] ?? 1.0;
+function generateAnalysis(pair: string, timeframe: string, basePrice: number) {
   const isJpy      = pair.includes("JPY");
   const isGold     = pair === "XAUUSD";
   const isCrypto   = ["BTC","ETH","XRP","LTC","DOGE","DOT","BNB","SOL","ADA","AVAX","MATIC","LINK"].some(s => pair.startsWith(s));
@@ -674,17 +763,21 @@ router.post("/analyze", async (req, res) => {
   const parsed = AnalyzeSignalBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Invalid request body" }); return; }
   const { pair, timeframe } = parsed.data;
-  const analysis = generateAnalysis(pair, timeframe);
+  const prices   = await getLivePrices();
+  const basePrice = prices[pair] ?? FALLBACK_PRICES[pair] ?? 1.0;
+  const analysis = generateAnalysis(pair, timeframe, basePrice);
   res.json(analysis);
 });
 
 // ── Multi-Timeframe Bias ──────────────────────────────────────────────────────
-router.post("/mtf-bias", (req, res) => {
+router.post("/mtf-bias", async (req, res) => {
   const { pair } = req.body;
   if (!pair || typeof pair !== "string") { res.status(400).json({ error: "pair required" }); return; }
+  const prices    = await getLivePrices();
+  const basePrice = prices[pair] ?? FALLBACK_PRICES[pair] ?? 1.0;
   const timeframes = ["M15", "H1", "H4", "D1"];
   const results = timeframes.map(tf => {
-    const a = generateAnalysis(pair, tf);
+    const a = generateAnalysis(pair, tf, basePrice);
     const bullPct = a.signal === "BUY" ? Math.round(50 + (a.confidenceScore - 50) * 0.6) :
                     a.signal === "SELL" ? Math.round(50 - (a.confidenceScore - 50) * 0.6) : 50;
     return {
