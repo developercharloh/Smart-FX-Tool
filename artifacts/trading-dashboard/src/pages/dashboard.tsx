@@ -53,9 +53,6 @@ export default function Dashboard() {
         </Link>
       </div>
 
-      {/* Live MT5 Account Balances */}
-      <DerivBalanceWidget />
-
       {/* Deriv API Trading */}
       <DerivTradePanel />
 
