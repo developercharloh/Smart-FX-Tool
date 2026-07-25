@@ -1,64 +1,64 @@
 /**
- * useDerivTrade — calls server-side /api/deriv/* endpoints.
- * Token lives in DERIV_API_TOKEN env var on the server; never touches the browser.
+ * useDerivTrade — Deriv deep-link trading.
+ * Opens app.deriv.com/dtrader pre-filled with trade details.
+ * No API token needed — user is already logged into Deriv on their device.
  */
 
-import { useState, useCallback, useRef, useEffect } from "react";
-
-const BASE = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
+import { useState, useCallback } from "react";
 
 const SETTINGS_KEY = "smartfx_deriv_trade_settings";
+
+const PAIR_TO_SYMBOL: Record<string, string> = {
+  EURUSD: "frxEURUSD", GBPUSD: "frxGBPUSD", USDJPY: "frxUSDJPY",
+  AUDUSD: "frxAUDUSD", USDCAD: "frxUSDCAD", NZDUSD: "frxNZDUSD",
+  USDCHF: "frxUSDCHF", GBPJPY: "frxGBPJPY", EURJPY: "frxEURJPY",
+  EURGBP: "frxEURGBP", AUDJPY: "frxAUDJPY", GBPCAD: "frxGBPCAD",
+  AUDCAD: "frxAUDCAD", GBPCHF: "frxGBPCHF", AUDNZD: "frxAUDNZD",
+  CADCHF: "frxCADCHF", NZDJPY: "frxNZDJPY", EURCAD: "frxEURCAD",
+  EURCHF: "frxEURCHF", EURAUD: "frxEURAUD", GBPAUD: "frxGBPAUD",
+  CADJPY: "frxCADJPY", AUDCHF: "frxAUDCHF",
+  XAUUSD: "frxXAUUSD", XAGUSD: "frxXAGUSD",
+  BTCUSD: "cryBTCUSD", ETHUSD: "cryETHUSD", XRPUSD: "cryXRPUSD",
+  R_10: "R_10", R_25: "R_25", R_50: "R_50", R_75: "R_75", R_100: "R_100",
+  BOOM500: "BOOM500", BOOM1000: "BOOM1000",
+  CRASH500: "CRASH500", CRASH1000: "CRASH1000",
+};
 
 export interface TradeSettings {
   stake:      number;
   multiplier: number;
 }
 
-export interface OpenPosition {
-  contractId:   number;
-  symbol:       string;
-  type:         "MULTUP" | "MULTDOWN";
-  direction:    "BUY" | "SELL";
-  stake:        number;
-  currentValue: number;
-  profit:       number;
-  entrySpot:    number;
-  openedAt:     number;
-}
-
-export interface DerivBalance {
-  balance:  number;
-  currency: string;
-  loginid:  string;
-}
-
-export type TradeStatus = "idle" | "connecting" | "proposing" | "buying" | "done" | "error";
-
 export interface TradeResult {
-  ok:          boolean;
-  contractId?: number;
-  message:     string;
+  ok:      boolean;
+  message: string;
 }
 
-async function api<T>(path: string, opts?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...opts,
+export type TradeStatus = "idle" | "opened";
+
+/** Build the Deriv DTrader deep-link URL */
+export function buildDerivTradeUrl(pair: string, direction: "BUY" | "SELL", stake: number, multiplier: number): string | null {
+  const symbol = PAIR_TO_SYMBOL[pair.toUpperCase()];
+  if (!symbol) return null;
+  const contractType = direction === "BUY" ? "MULTUP" : "MULTDOWN";
+  const params = new URLSearchParams({
+    contract_type: contractType,
+    symbol,
+    amount:      String(stake),
+    multiplier:  String(multiplier),
+    basis:       "stake",
+    currency:    "USD",
   });
-  return res.json();
+  return `https://app.deriv.com/dtrader?${params.toString()}`;
 }
 
 export function useDerivTrade() {
-  const [connected, setConnected] = useState(false);
-  const [balance,   setBalance]   = useState<DerivBalance | null>(null);
-  const [positions, setPositions] = useState<OpenPosition[]>([]);
-  const [status,    setStatus]    = useState<TradeStatus>("idle");
-  const [lastResult, setResult]   = useState<TradeResult | null>(null);
-  const [settings, setSettings]   = useState<TradeSettings>(() => {
+  const [settings, setSettings] = useState<TradeSettings>(() => {
     try { return { stake: 1, multiplier: 10, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "{}") }; }
     catch { return { stake: 1, multiplier: 10 }; }
   });
-  const activeRef = useRef(false);
+  const [lastResult, setResult] = useState<TradeResult | null>(null);
+  const [status, setStatus]     = useState<TradeStatus>("idle");
 
   function saveSettings(s: Partial<TradeSettings>) {
     const merged = { ...settings, ...s };
@@ -66,80 +66,36 @@ export function useDerivTrade() {
     setSettings(merged);
   }
 
-  const refreshBalance = useCallback(async () => {
-    try {
-      const data = await api<DerivBalance & { error?: string }>("/api/deriv/balance");
-      if (data.error) { setConnected(false); setBalance(null); return; }
-      setBalance(data);
-      setConnected(true);
-    } catch {
-      setConnected(false);
-      setBalance(null);
-    }
-  }, []);
-
-  const refreshPositions = useCallback(async () => {
-    try {
-      const data = await api<OpenPosition[] | { error: string }>("/api/deriv/positions");
-      if (!Array.isArray(data)) return;
-      setPositions(data);
-    } catch { /* ignore */ }
-  }, []);
-
-  // On mount: check connection + load balance + positions
-  useEffect(() => {
-    refreshBalance();
-    refreshPositions();
-  }, []);
-
-  const executeTrade = useCallback(async (pair: string, direction: "BUY" | "SELL"): Promise<TradeResult> => {
-    if (activeRef.current) return { ok: false, message: "Trade already in progress" };
-    activeRef.current = true;
-    setStatus("connecting");
-    setResult(null);
-
-    try {
-      setStatus("proposing");
-      const result = await api<TradeResult>("/api/deriv/trade", {
-        method: "POST",
-        body: JSON.stringify({ pair, direction, stake: settings.stake, multiplier: settings.multiplier }),
-      });
-      setResult(result);
-      setStatus(result.ok ? "done" : "error");
-      if (result.ok) { refreshPositions(); refreshBalance(); }
-      return result;
-    } catch (e: any) {
-      const r: TradeResult = { ok: false, message: e?.message ?? "Request failed" };
+  const executeTrade = useCallback((pair: string, direction: "BUY" | "SELL"): TradeResult => {
+    const url = buildDerivTradeUrl(pair, direction, settings.stake, settings.multiplier);
+    if (!url) {
+      const r = { ok: false, message: `${pair} not supported` };
       setResult(r);
-      setStatus("error");
       return r;
-    } finally {
-      activeRef.current = false;
-      setTimeout(() => setStatus("idle"), 4000);
     }
-  }, [settings.stake, settings.multiplier, refreshPositions, refreshBalance]);
-
-  const closePos = useCallback(async (contractId: number) => {
-    try {
-      const result = await api<{ ok: boolean; message: string }>(`/api/deriv/close/${contractId}`, { method: "POST" });
-      if (result.ok) refreshPositions();
-      return result;
-    } catch (e: any) {
-      return { ok: false, message: e?.message ?? "Close failed" };
-    }
-  }, [refreshPositions]);
+    window.open(url, "_blank", "noopener,noreferrer");
+    setStatus("opened");
+    const r = { ok: true, message: `Opened Deriv — confirm ${direction} ${pair}` };
+    setResult(r);
+    setTimeout(() => setStatus("idle"), 3000);
+    return r;
+  }, [settings.stake, settings.multiplier]);
 
   return {
-    connected,
-    balance, refreshBalance,
-    positions, refreshPositions, closePos,
-    settings, saveSettings,
-    status, lastResult,
+    // Always "connected" — no token needed
+    connected:  true,
+    balance:    null,
+    positions:  [],
+    settings,   saveSettings,
+    status,     lastResult,
     executeTrade,
-    isTrading: status === "connecting" || status === "proposing" || status === "buying",
-    // legacy compat
-    token: connected ? "server" : null,
-    saveToken: () => {},
+    isTrading:  false,
+    refreshBalance:   () => {},
+    refreshPositions: () => {},
+    closePos:   async () => ({ ok: false, message: "Use the Deriv app to close positions" }),
+    // legacy compat for scanner card
+    token: "deeplink",
+    saveToken:   () => {},
     removeToken: () => {},
   };
 }

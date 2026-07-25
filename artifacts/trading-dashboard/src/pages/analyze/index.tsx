@@ -240,16 +240,13 @@ function ScannerSignalCard({
   onFeedToEA: (r: ScanResult) => void;
   onDeepAnalyze: (pair: string, tf: string) => void;
 }) {
-  const { token, executeTrade, isTrading, lastResult, status } = useDerivTradeCtx();
-  const [executing, setExecuting] = useState(false);
+  const { token, executeTrade } = useDerivTradeCtx();
   const [cardResult, setCardResult] = useState<{ ok: boolean; message: string } | null>(null);
 
-  async function handleExecute() {
-    setExecuting(true);
+  function handleExecute() {
     setCardResult(null);
-    const res = await executeTrade(result.pair, result.signal as "BUY" | "SELL");
+    const res = executeTrade(result.pair, result.signal as "BUY" | "SELL");
     setCardResult(res);
-    setExecuting(false);
     setTimeout(() => setCardResult(null), 5000);
   }
 
@@ -378,24 +375,18 @@ function ScannerSignalCard({
         >
           <Search className="w-3 h-3" /> Deep Analyse
         </button>
-        {isHighConf && token && (
+        {isHighConf && (
           <button
             onClick={handleExecute}
-            disabled={executing}
             style={{
-              background: executing
-                ? "rgba(251,191,36,0.1)"
-                : isBuy
-                  ? "linear-gradient(135deg,rgba(52,211,153,0.18),rgba(0,255,255,0.12))"
-                  : "linear-gradient(135deg,rgba(248,113,113,0.18),rgba(239,68,68,0.12))",
-              border: executing ? "1px solid rgba(251,191,36,0.3)" : isBuy ? "1px solid rgba(52,211,153,0.35)" : "1px solid rgba(248,113,113,0.35)",
+              background: isBuy
+                ? "linear-gradient(135deg,rgba(52,211,153,0.18),rgba(0,255,255,0.12))"
+                : "linear-gradient(135deg,rgba(248,113,113,0.18),rgba(239,68,68,0.12))",
+              border: isBuy ? "1px solid rgba(52,211,153,0.35)" : "1px solid rgba(248,113,113,0.35)",
             }}
-            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-[8px] text-xs font-bold text-white hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-60 disabled:scale-100"
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-[8px] text-xs font-bold text-white hover:scale-[1.02] active:scale-[0.98] transition-all"
           >
-            {executing
-              ? <><RefreshCw className="w-3 h-3 animate-spin" /> Executing…</>
-              : <><Zap className="w-3 h-3" /> Execute {result.signal}</>
-            }
+            <ExternalLink className="w-3 h-3" /> Trade {result.signal} on Deriv
           </button>
         )}
         {isHighConf && (
