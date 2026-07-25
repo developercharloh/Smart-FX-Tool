@@ -6,11 +6,9 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Zap, Activity, ShieldAlert, ArrowRight, BarChart2,
   Clock, Layers, Target, BarChart, Waves, ChevronDown, ChevronUp,
-  Terminal, Download, Copy, Check, ChevronRight, X, RefreshCw,
-  TrendingUp, TrendingDown, Scan, AlertTriangle, Bot, Search,
+  X, RefreshCw, ExternalLink,
+  TrendingUp, TrendingDown, Scan, AlertTriangle, Search,
 } from "lucide-react";
-import { useQueueMT5 } from "@/hooks/useMT5";
-import { MT5ExecutionsPanel } from "@/components/shared/MT5ExecutionsPanel";
 import { ConfidenceGauge } from "@/components/shared/ConfidenceGauge";
 import { TrendBadge } from "@/components/shared/TrendBadge";
 import { Badge } from "@/components/ui/badge";
@@ -236,10 +234,9 @@ function VolatilityBadge({ entry, stopLoss }: { entry: number; stopLoss: number 
 // ─────────────────────────────────────────────────────────────────────────────
 
 function ScannerSignalCard({
-  result, onFeedToEA, onDeepAnalyze
+  result, onDeepAnalyze
 }: {
   result: ScanResult;
-  onFeedToEA: (r: ScanResult) => void;
   onDeepAnalyze: (pair: string, tf: string) => void;
 }) {
   const { token, executeTrade } = useDerivTradeCtx();
@@ -277,8 +274,8 @@ function ScannerSignalCard({
           style={{ background: "rgba(0,255,255,0.08)", border: "1px solid rgba(0,255,255,0.2)" }}
           className="absolute top-3 right-3 flex items-center gap-1 px-2 py-0.5 rounded-full"
         >
-          <Bot className="w-3 h-3 text-cyan-400" />
-          <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider">EA Ready</span>
+          <Zap className="w-3 h-3 text-cyan-400" />
+          <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider">High Conf</span>
         </div>
       )}
 
@@ -391,18 +388,6 @@ function ScannerSignalCard({
             <ExternalLink className="w-3 h-3" /> Trade {result.signal} on Deriv
           </button>
         )}
-        {isHighConf && (
-          <button
-            onClick={() => onFeedToEA(result)}
-            style={{
-              background: "linear-gradient(135deg, rgba(0,255,255,0.14), rgba(139,92,246,0.14))",
-              border: "1px solid rgba(0,255,255,0.3)",
-            }}
-            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-[8px] text-xs font-bold text-white hover:scale-[1.02] active:scale-[0.98] transition-all"
-          >
-            <Terminal className="w-3 h-3 text-cyan-400" /> Feed to EA
-          </button>
-        )}
       </div>
     </div>
   );
@@ -448,14 +433,6 @@ export default function Analyze() {
   const { history, push: pushHistory, clear: clearHistory } = useAnalysisHistory();
   const [historyResult, setHistoryResult] = useState<any>(null);
 
-  // MT5 modal
-  const [mt5Modal, setMT5Modal]   = useState(false);
-  const [mt5Signal, setMT5Signal] = useState<ScanResult | null>(null);
-  const [mt5Risk, setMT5Risk]     = useState("1.0");
-  const [copied, setCopied]       = useState(false);
-  const [eaSetupOpen, setEaSetupOpen] = useState(false);
-  const queueMT5 = useQueueMT5();
-
   // Market status (recomputed on mount + every minute)
   const [marketStatus, setMarketStatus] = useState(detectMarketStatus);
   useEffect(() => {
@@ -474,7 +451,6 @@ export default function Analyze() {
   const [lastScanned, setLastScanned]   = useState<Date | null>(null);
   const [scanError, setScanError]       = useState<string | null>(null);
   const [autoScan, setAutoScan]         = useState(false);
-  const [autoFeed, setAutoFeed]         = useState(false);
   const autoIntervalRef                 = useRef<NodeJS.Timeout | null>(null);
   const autoFedIds                      = useRef<Set<string>>(new Set());
 
@@ -486,7 +462,7 @@ export default function Analyze() {
 
   // ── Scanner core ───────────────────────────────────────────────────────────
 
-  const runScan = useCallback(async (autoFeedEnabled = false) => {
+  const runScan = useCallback(async () => {
     setScanning(true);
     setScanError(null);
     try {
@@ -501,60 +477,30 @@ export default function Analyze() {
       setScanResults(data.signals);
       setSkippedPairs(data.pairsSkipped ?? []);
       setLastScanned(new Date());
-
-      // Auto-feed: queue any new high-confidence signals that haven't been queued yet
-      if (autoFeedEnabled && data.signals.length > 0) {
-        for (const sig of data.signals) {
-          if (sig.confidenceScore < 80) continue;
-          const dedupKey = `${sig.pair}_${sig.timeframe}_${sig.signal}_${sig.entry}`;
-          if (autoFedIds.current.has(dedupKey)) continue;
-          autoFedIds.current.add(dedupKey);
-          try {
-            await fetch(`${BASE}/api/mt5/queue`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                pair: sig.pair, signal: sig.signal, timeframe: sig.timeframe,
-                entry: sig.entry, stopLoss: sig.stopLoss, takeProfit: sig.takeProfit,
-                riskPercent: parseFloat(mt5Risk) || 1.0,
-                confidenceScore: sig.confidenceScore, riskRewardRatio: sig.riskRewardRatio,
-              }),
-            });
-            toast({ title: `Auto-fed: ${sig.pair} ${sig.signal}`, description: `${sig.confidenceScore}% confidence → queued to MT5` });
-          } catch { /* ignore per-signal errors */ }
-        }
-      }
     } catch (e: any) {
       setScanError(e.message ?? "Scan failed");
       toast({ variant: "destructive", title: "Scan failed", description: e.message });
     } finally {
       setScanning(false);
     }
-  }, [watchlistKey, scanTF, minConf, mt5Risk]);
+  }, [watchlistKey, scanTF, minConf]);
 
   // Auto-scan on mount — run one scan immediately when the page first loads
   const didMountScan = useRef(false);
   useEffect(() => {
     if (didMountScan.current) return;
     didMountScan.current = true;
-    runScan(false);
+    runScan();
   }, [runScan]);
 
   // Auto-scan interval
   useEffect(() => {
     if (autoIntervalRef.current) clearInterval(autoIntervalRef.current);
     if (autoScan) {
-      autoIntervalRef.current = setInterval(() => runScan(autoFeed), 60_000);
+      autoIntervalRef.current = setInterval(() => runScan(), 60_000);
     }
     return () => { if (autoIntervalRef.current) clearInterval(autoIntervalRef.current); };
-  }, [autoScan, autoFeed, runScan]);
-
-  // ── MT5 feed handler ───────────────────────────────────────────────────────
-
-  function openFeedModal(sig: ScanResult) {
-    setMT5Signal(sig);
-    setMT5Modal(true);
-  }
+  }, [autoScan, runScan]);
 
   function handleDeepAnalyze(p: string, tf: string) {
     setPair(p);
@@ -625,18 +571,6 @@ export default function Analyze() {
             }
           </p>
         </div>
-        <button
-          onClick={() => setEaSetupOpen(v => !v)}
-          style={eaSetupOpen
-            ? { background: "rgba(0,255,255,0.08)", border: "1px solid rgba(0,255,255,0.25)", color: "#00e5e5" }
-            : { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#64748b" }
-          }
-          className="flex items-center gap-2 px-4 py-2 rounded-[10px] text-sm font-semibold transition-all hover:border-cyan-400/25 hover:text-white shrink-0"
-        >
-          <Terminal className="w-4 h-4" />
-          MT5 EA Setup
-          <ChevronRight className={`w-3.5 h-3.5 transition-transform ${eaSetupOpen ? "rotate-90" : ""}`} />
-        </button>
       </div>
 
       {/* ── Market Status Banner ──────────────────────────────────────────────── */}
@@ -688,56 +622,6 @@ export default function Analyze() {
               </button>
             </div>
           )}
-        </div>
-      )}
-
-      {/* ── EA Setup Guide ────────────────────────────────────────────────────── */}
-      {eaSetupOpen && (
-        <div style={{ background:"rgba(11,15,25,0.8)", border:"1px solid rgba(0,255,255,0.12)", backdropFilter:"blur(16px)" }}
-          className="rounded-[16px] p-5 space-y-4"
-        >
-          <div className="flex items-center gap-2 mb-1">
-            <Terminal className="w-4 h-4 text-cyan-400" />
-            <h3 className="text-sm font-bold text-white">Expert Advisor Setup</h3>
-            <span className="text-[11px] text-slate-500 ml-1">— one-time, ~2 min</span>
-          </div>
-          <div className="grid md:grid-cols-2 gap-4">
-            <div className="space-y-3">
-              {[
-                { n:1, text:"Download the EA file → copy to MQL5\\Experts\\ in your Deriv MT5 folder" },
-                { n:2, text:"Open MetaEditor (F4), find SmartFX_EA.mq5, compile it (F7)" },
-                { n:3, text:"Deriv MT5 → Tools → Options → Expert Advisors → tick 'Allow automated trading' and 'Allow WebRequest for listed URL'" },
-                { n:4, text:"Add to WebRequest whitelist: smart-fx-tool.replit.app" },
-                { n:5, text:"Attach EA to any Deriv chart (Volatility, Forex, or Crypto). Set EA_KEY and your risk % then click OK" },
-              ].map(({ n, text }) => (
-                <div key={n} className="flex gap-3">
-                  <span style={{ background:"rgba(0,255,255,0.08)", border:"1px solid rgba(0,255,255,0.15)", color:"#00e5e5" }}
-                    className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">{n}</span>
-                  <p className="text-sm text-slate-400 leading-relaxed">{text}</p>
-                </div>
-              ))}
-            </div>
-            <div className="space-y-3">
-              <a href={`${import.meta.env.BASE_URL ?? "/"}SmartFX_EA.mq5`} download="SmartFX_EA.mq5"
-                style={{ background:"linear-gradient(135deg,rgba(0,255,255,0.12),rgba(139,92,246,0.12))", border:"1px solid rgba(0,255,255,0.3)", boxShadow:"0 0 20px rgba(0,255,255,0.08)" }}
-                className="flex items-center justify-center gap-2 w-full py-3 rounded-[10px] text-sm font-bold text-white hover:scale-[1.02] transition-all"
-              >
-                <Download className="w-4 h-4 text-cyan-400" /> Download SmartFX_EA.mq5
-              </a>
-              <div style={{ background:"rgba(255,255,255,0.02)", border:"1px solid rgba(255,255,255,0.06)" }} className="rounded-[10px] p-4 space-y-2">
-                <p className="text-[11px] font-bold uppercase tracking-widest text-slate-500">EA Key</p>
-                <div className="flex items-center gap-2">
-                  <code style={{ background:"rgba(0,255,255,0.05)", border:"1px solid rgba(0,255,255,0.15)" }}
-                    className="flex-1 font-mono text-cyan-400 text-sm px-3 py-2 rounded-[7px]">smartfx-ea-2025</code>
-                  <button onClick={() => { navigator.clipboard.writeText("smartfx-ea-2025"); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-                    style={{ background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.08)" }}
-                    className="p-2 rounded-[7px] text-slate-500 hover:text-cyan-400 transition-all">
-                    {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       )}
 
@@ -817,7 +701,7 @@ export default function Analyze() {
           <div className="space-y-1.5">
             <label className="text-xs font-bold uppercase tracking-widest text-transparent select-none">Run</label>
             <button
-              onClick={() => runScan(autoFeed)}
+              onClick={() => runScan()}
               disabled={scanning}
               style={!scanning ? {
                 background:"linear-gradient(135deg,rgba(0,255,255,0.15),rgba(139,92,246,0.15))",
@@ -847,33 +731,6 @@ export default function Analyze() {
             <div className={cn("w-3 h-3 rounded-full", autoScan ? "bg-emerald-400 animate-pulse" : "bg-slate-600")} />
             {autoScan ? "Auto-Scan ON (60s)" : "Auto-Scan OFF"}
           </button>
-
-          {/* Auto-feed toggle */}
-          <button
-            onClick={() => {
-              if (!autoFeed) {
-                toast({ title: "Auto-Feed enabled", description: "New ≥80% confidence signals will be queued to MT5 automatically." });
-              }
-              setAutoFeed(v => !v);
-            }}
-            style={autoFeed
-              ? { background:"rgba(0,255,255,0.08)", border:"1px solid rgba(0,255,255,0.25)", color:"#00e5e5" }
-              : { background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.08)", color:"#64748b" }
-            }
-            className="flex items-center gap-2 px-4 py-2 rounded-[10px] text-xs font-bold transition-all hover:border-cyan-400/25"
-          >
-            <Bot className="w-3.5 h-3.5" />
-            {autoFeed ? "Auto-Feed to EA ON" : "Auto-Feed to EA OFF"}
-          </button>
-
-          {autoFeed && (
-            <div style={{ background:"rgba(255,165,0,0.06)", border:"1px solid rgba(255,165,0,0.15)" }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-[8px]"
-            >
-              <AlertTriangle className="w-3 h-3 text-amber-400" />
-              <span className="text-[11px] text-amber-400/80">High-confidence signals are auto-queued. EA will trade them.</span>
-            </div>
-          )}
 
           {/* Status */}
           {lastScanned && (
@@ -942,7 +799,7 @@ export default function Analyze() {
               <div style={{ background:"rgba(0,255,255,0.06)", border:"1px solid rgba(0,255,255,0.15)" }}
                 className="flex items-center gap-2 px-3 py-1.5 rounded-[8px]"
               >
-                <Bot className="w-4 h-4 text-cyan-400" />
+                <Scan className="w-4 h-4 text-cyan-400" />
                 <span className="text-sm font-bold text-white">{scanResults.length}</span>
                 <span className="text-xs text-slate-400">signal{scanResults.length !== 1 ? "s" : ""} ≥{minConf}%</span>
               </div>
@@ -966,7 +823,6 @@ export default function Analyze() {
                 <ScannerSignalCard
                   key={`${sig.pair}_${sig.timeframe}_${i}`}
                   result={sig}
-                  onFeedToEA={openFeedModal}
                   onDeepAnalyze={handleDeepAnalyze}
                 />
               ))}
@@ -993,7 +849,7 @@ export default function Analyze() {
             </p>
           </div>
           <button
-            onClick={() => runScan(autoFeed)}
+            onClick={() => runScan()}
             style={{ background:"linear-gradient(135deg,rgba(0,255,255,0.15),rgba(139,92,246,0.15))", border:"1px solid rgba(0,255,255,0.3)", boxShadow:"0 0 20px rgba(0,255,255,0.1)" }}
             className="px-8 py-3 rounded-[12px] text-sm font-bold text-white flex items-center gap-2 hover:scale-[1.02] transition-all"
           >
@@ -1001,9 +857,6 @@ export default function Analyze() {
           </button>
         </div>
       )}
-
-      {/* ── MT5 Executions ────────────────────────────────────────────────────── */}
-      <MT5ExecutionsPanel />
 
       {/* ── Deep Analyze (single pair) ───────────────────────────────────────── */}
       <div id="deep-analyze-section">
@@ -1290,22 +1143,6 @@ export default function Analyze() {
                     <Button onClick={handleSave} className="flex-1 font-bold" size="lg" disabled={createMutation.isPending}>
                       {createMutation.isPending ? "Saving..." : "Save Signal"} <ArrowRight className="w-4 h-4 ml-2" />
                     </Button>
-                    {deepResult.confidenceScore >= 80 && (
-                      <button
-                        onClick={() => openFeedModal(deepResult)}
-                        style={{ background:"linear-gradient(135deg,rgba(0,255,255,0.12),rgba(139,92,246,0.12))", border:"1px solid rgba(0,255,255,0.3)", boxShadow:"0 0 20px rgba(0,255,255,0.08)" }}
-                        className="flex-1 flex items-center justify-center gap-2 px-6 py-3 rounded-lg text-sm font-bold text-white hover:scale-[1.02] active:scale-[0.98] transition-all"
-                      >
-                        <Terminal className="w-4 h-4 text-cyan-400" /> Feed to MT5
-                      </button>
-                    )}
-                    {deepResult.confidenceScore < 80 && (
-                      <div style={{ background:"rgba(255,165,0,0.06)", border:"1px solid rgba(255,165,0,0.2)" }}
-                        className="flex-1 flex items-center justify-center gap-2 px-6 py-3 rounded-lg text-xs text-amber-400/80"
-                      >
-                        <AlertTriangle className="w-4 h-4" /> {deepResult.confidenceScore}% — below 80% MT5 threshold
-                      </div>
-                    )}
                   </div>
                 )}
               </CardContent>
@@ -1314,114 +1151,6 @@ export default function Analyze() {
         </div>
       )}
 
-      {/* ── MT5 Confirmation Modal ────────────────────────────────────────────── */}
-      {mt5Modal && mt5Signal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{ background:"rgba(0,0,0,0.75)", backdropFilter:"blur(8px)" }}
-          onClick={e => { if (e.target === e.currentTarget) setMT5Modal(false); }}
-        >
-          <div
-            style={{ background:"rgba(11,15,25,0.97)", border:"1px solid rgba(0,255,255,0.15)", boxShadow:"0 24px 80px rgba(0,0,0,0.7)" }}
-            className="rounded-[20px] p-6 w-full max-w-md space-y-5"
-          >
-            <div className="flex items-start justify-between">
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <Terminal className="w-5 h-5 text-cyan-400" />
-                  <h3 className="text-lg font-bold text-white">Feed to MT5</h3>
-                </div>
-                <p className="text-sm text-slate-500">Your EA will execute this within 5 seconds of confirmation.</p>
-              </div>
-              <button onClick={() => setMT5Modal(false)} className="p-1.5 rounded-lg text-slate-600 hover:text-white hover:bg-white/5 transition-all">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Confidence badge */}
-            <div style={{ background:"rgba(0,255,255,0.05)", border:"1px solid rgba(0,255,255,0.15)" }}
-              className="flex items-center gap-3 rounded-[10px] px-4 py-2">
-              <Bot className="w-4 h-4 text-cyan-400" />
-              <span className="text-sm text-white font-semibold">{mt5Signal.confidenceScore}% confidence</span>
-              <span className="text-[11px] text-slate-500 ml-auto">{mt5Signal.pair} · {mt5Signal.timeframe}</span>
-            </div>
-
-            {/* Trade summary */}
-            <div style={{ background:"rgba(255,255,255,0.02)", border:"1px solid rgba(255,255,255,0.06)" }} className="rounded-[12px] p-4 space-y-3">
-              <div className="flex items-center gap-2">
-                <span style={mt5Signal.signal === "BUY"
-                    ? { background:"rgba(52,211,153,0.08)", border:"1px solid rgba(52,211,153,0.2)", color:"#34d399" }
-                    : { background:"rgba(248,113,113,0.08)", border:"1px solid rgba(248,113,113,0.2)", color:"#f87171" }
-                  }
-                  className="font-mono text-sm font-bold px-3 py-1 rounded-[7px]">{mt5Signal.signal}</span>
-                <span className="font-mono font-bold text-white">{mt5Signal.pair}</span>
-                <span className="text-slate-500 font-mono text-sm">· {mt5Signal.timeframe}</span>
-              </div>
-              <div className="grid grid-cols-3 gap-3 text-center text-xs">
-                {[
-                  { label:"Entry",  val:fmtPriceFor(mt5Signal.entry, mt5Signal.pair, false),      style:{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.06)"}, cls:"text-white" },
-                  { label:"Stop",   val:fmtPriceFor(mt5Signal.stopLoss, mt5Signal.pair, false),   style:{background:"rgba(248,113,113,0.04)",border:"1px solid rgba(248,113,113,0.15)"}, cls:"text-rose-400" },
-                  { label:"Target", val:fmtPriceFor(mt5Signal.takeProfit, mt5Signal.pair, false), style:{background:"rgba(52,211,153,0.04)",border:"1px solid rgba(52,211,153,0.15)"},   cls:"text-emerald-400" },
-                ].map(({ label, val, style, cls }) => (
-                  <div key={label} style={style} className="rounded-[8px] p-2.5">
-                    <div className="text-slate-500 mb-1">{label}</div>
-                    <div className={cn("font-mono font-bold", cls)}>{val}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Risk % */}
-            <div className="space-y-2">
-              <label className="text-xs font-bold uppercase tracking-widest text-slate-500">Risk per trade (%)</label>
-              <div className="flex items-center gap-2">
-                {["0.5","1.0","1.5","2.0"].map(v => (
-                  <button key={v} onClick={() => setMT5Risk(v)}
-                    style={mt5Risk === v
-                      ? { background:"rgba(0,255,255,0.1)", border:"1px solid rgba(0,255,255,0.3)", color:"#00ffff" }
-                      : { background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.08)", color:"#94a3b8" }
-                    }
-                    className="flex-1 py-2 rounded-[8px] text-sm font-bold transition-all hover:border-cyan-400/25"
-                  >{v}%</button>
-                ))}
-                <input type="number" value={mt5Risk} onChange={e => setMT5Risk(e.target.value)} min="0.1" max="10" step="0.1"
-                  style={{ background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.08)" }}
-                  className="w-20 px-3 py-2 rounded-[8px] text-sm font-mono text-white text-center focus:outline-none focus:border-cyan-400/40"
-                />
-              </div>
-              <p className="text-[11px] text-slate-600">EA calculates exact lot size from your live account balance × risk %.</p>
-            </div>
-
-            {/* Confirm */}
-            <button
-              disabled={queueMT5.isPending}
-              onClick={() => {
-                queueMT5.mutate({
-                  pair: mt5Signal.pair, signal: mt5Signal.signal as "BUY"|"SELL",
-                  timeframe: mt5Signal.timeframe, entry: mt5Signal.entry,
-                  stopLoss: mt5Signal.stopLoss, takeProfit: mt5Signal.takeProfit,
-                  riskPercent: parseFloat(mt5Risk) || 1.0,
-                  confidenceScore: mt5Signal.confidenceScore,
-                  riskRewardRatio: mt5Signal.riskRewardRatio,
-                }, {
-                  onSuccess: () => { setMT5Modal(false); toast({ title:"Sent to MT5 ✓", description:`${mt5Signal.pair} ${mt5Signal.signal} queued — EA picks it up within 5s` }); },
-                  onError: (err: any) => toast({ variant:"destructive", title:"Failed to queue", description:err.message }),
-                });
-              }}
-              style={queueMT5.isPending
-                ? { background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.08)" }
-                : { background:"linear-gradient(135deg,rgba(0,255,255,0.15),rgba(139,92,246,0.15))", border:"1px solid rgba(0,255,255,0.3)", boxShadow:"0 0 20px rgba(0,255,255,0.1)" }
-              }
-              className="w-full py-3.5 rounded-[12px] text-sm font-bold text-white disabled:opacity-50 flex items-center justify-center gap-2 hover:scale-[1.01] active:scale-[0.99] transition-all"
-            >
-              {queueMT5.isPending
-                ? <><Activity className="w-4 h-4 animate-spin" /> Queueing…</>
-                : <><Terminal className="w-4 h-4 text-cyan-400" /> Confirm &amp; Feed to MT5</>
-              }
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

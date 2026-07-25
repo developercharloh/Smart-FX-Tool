@@ -9,7 +9,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
 import { useQueryClient } from "@tanstack/react-query";
 import { SessionClock } from "@/components/shared/SessionClock";
-import { DerivBalanceWidget } from "@/components/shared/DerivBalanceWidget";
 import { DerivTradePanel } from "@/components/shared/DerivTradePanel";
 import { cn } from "@/lib/utils";
 

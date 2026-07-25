@@ -211,9 +211,9 @@ export default function RiskCalculator() {
                 )}
               </div>
 
-              {/* MT4/MT5 Copy */}
+              {/* Trade Summary */}
               <div className="rounded-xl border border-border/40 bg-card/30 p-4 space-y-2">
-                <p className="text-xs font-semibold text-muted-foreground">MT4/MT5 Summary</p>
+                <p className="text-xs font-semibold text-muted-foreground">Trade Summary</p>
                 <div className="font-mono text-xs text-foreground/80 bg-background rounded-lg p-3 leading-relaxed border border-border/40">
                   <p>{dir} {pair} @ {entry || "—"}</p>
                   <p>SL: {sl || "—"} | TP: {tp || "—"}</p>
