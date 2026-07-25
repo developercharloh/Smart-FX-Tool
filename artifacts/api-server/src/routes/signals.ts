@@ -935,8 +935,12 @@ const SCANNER_DEFAULT_PAIRS = [
   "GBPJPY","EURJPY","EURGBP","AUDJPY","GBPCAD","AUDNZD",
   // Metals
   "XAUUSD","XAGUSD",
-  // Crypto
+  // Crypto (24/7)
   "BTCUSD","ETHUSD","XRPUSD",
+  // Synthetics — run 24/7 including weekends
+  "R_10","R_25","R_50","R_75","R_100",
+  "BOOM500","BOOM1000","CRASH500","CRASH1000",
+  "JD10","JD25","JD50",
 ];
 
 router.get("/market-status", (_req, res) => {
