@@ -160,8 +160,10 @@ void PollAndTrade()
    if (ok)
    {
       g_trades++;
+      ulong ticket = g_trade.ResultOrder();
       Print("SmartFX: Trade opened ✓ — ", dir, " ", symbol,
-            " | Ticket:", g_trade.ResultOrder());
+            " | Ticket:", ticket);
+      ReportTrade(ticket, symbol, dir, InpLotSize, sl, tp, sigId, conf, tf);
    }
    else
    {
@@ -172,6 +174,35 @@ void PollAndTrade()
    g_lastPoll = TimeCurrent();
    Comment("SmartFX v2.0 | Last poll: ", TimeToString(g_lastPoll, TIME_MINUTES),
            " | Trades: ", g_trades);
+}
+
+//+------------------------------------------------------------------+
+//| Report a trade open/close event to SmartFX API                   |
+//+------------------------------------------------------------------+
+void ReportTrade(ulong ticket, string symbol, string direction,
+                 double lots, double sl, double tp,
+                 string sigId, int confidence, string timeframe)
+{
+   long   login     = AccountInfoInteger(ACCOUNT_LOGIN);
+   double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+   if (openPrice == 0) openPrice = g_trade.ResultPrice();
+
+   string json = StringFormat(
+      "{\"ticket\":\"%d\",\"login\":\"%d\",\"symbol\":\"%s\","
+      "\"direction\":\"%s\",\"lots\":%.2f,\"openPrice\":%.5f,"
+      "\"sl\":%.5f,\"tp\":%.5f,\"signalId\":\"%s\","
+      "\"confidence\":%d,\"timeframe\":\"%s\",\"status\":\"OPEN\"}",
+      ticket, login, symbol, direction, lots, openPrice,
+      sl, tp, sigId, confidence, timeframe
+   );
+
+   string url = InpApiUrl + "/api/ea/trade";
+   char   postData[], response[];
+   string respHeaders;
+   StringToCharArray(json, postData, 0, StringLen(json));
+   WebRequest("POST", url, "Content-Type: application/json\r\n",
+              5000, postData, response, respHeaders);
+   Print("SmartFX: Trade reported to dashboard — #", ticket);
 }
 
 //+------------------------------------------------------------------+

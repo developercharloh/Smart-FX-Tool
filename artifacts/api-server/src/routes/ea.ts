@@ -95,6 +95,85 @@ router.get("/balance", (_req, res) => {
   return res.json(_balances);
 });
 
+// ── In-memory trade store ─────────────────────────────────────────────────────
+interface EATrade {
+  id:          string;
+  ticket:      string;
+  login:       string;
+  symbol:      string;
+  direction:   "BUY" | "SELL";
+  lots:        number;
+  openPrice:   number;
+  sl:          number;
+  tp:          number;
+  signalId:    string;
+  confidence:  number;
+  timeframe:   string;
+  status:      "OPEN" | "CLOSED";
+  closePrice?: number;
+  profit?:     number;
+  openedAt:    number;
+  closedAt?:   number;
+}
+const _trades: EATrade[] = [];
+
+// ── POST /api/ea/trade ────────────────────────────────────────────────────────
+// EA calls this immediately after opening or closing a position.
+router.post("/trade", (req, res) => {
+  const {
+    ticket, login, symbol, direction, lots,
+    openPrice, sl, tp, signalId, confidence,
+    timeframe, status, closePrice, profit,
+  } = req.body;
+
+  if (!ticket || !symbol || !direction) {
+    return res.status(400).json({ error: "ticket, symbol and direction required" });
+  }
+
+  const now = Date.now();
+  const idx = _trades.findIndex(t => t.ticket === String(ticket));
+
+  if (idx >= 0) {
+    // Update existing (close event)
+    _trades[idx] = {
+      ..._trades[idx],
+      status:     status === "CLOSED" ? "CLOSED" : _trades[idx].status,
+      closePrice: closePrice != null ? Number(closePrice) : _trades[idx].closePrice,
+      profit:     profit     != null ? Number(profit)     : _trades[idx].profit,
+      closedAt:   status === "CLOSED" ? now : _trades[idx].closedAt,
+    };
+  } else {
+    // New trade
+    _trades.unshift({
+      id:         `${ticket}-${now}`,
+      ticket:     String(ticket),
+      login:      String(login   || ""),
+      symbol:     String(symbol),
+      direction:  direction === "BUY" ? "BUY" : "SELL",
+      lots:       Number(lots      || 0.01),
+      openPrice:  Number(openPrice || 0),
+      sl:         Number(sl        || 0),
+      tp:         Number(tp        || 0),
+      signalId:   String(signalId  || ""),
+      confidence: Number(confidence || 0),
+      timeframe:  String(timeframe || ""),
+      status:     "OPEN",
+      openedAt:   now,
+    });
+  }
+
+  // Keep last 200 trades
+  if (_trades.length > 200) _trades.splice(200);
+
+  return res.json({ ok: true });
+});
+
+// ── GET /api/ea/trades ────────────────────────────────────────────────────────
+// Dashboard reads all EA-opened trades.
+router.get("/trades", (_req, res) => {
+  return res.json(_trades);
+});
+
 // ── GET /api/ea/status ────────────────────────────────────────────────────────
 // Lightweight ping so the setup page can confirm the server is reachable.
 router.get("/status", (_req, res) => {

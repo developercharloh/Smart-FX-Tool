@@ -17,6 +17,7 @@ import SettingsPage from "@/pages/settings/index";
 import RiskCalculator from "@/pages/calculator/index";
 import EconomicCalendar from "@/pages/calendar/index";
 import SetupPage from "@/pages/setup/index";
+import TradesPage from "@/pages/trades/index";
 
 
 const queryClient = new QueryClient({
@@ -41,6 +42,7 @@ function MainApp() {
         <Route path="/calendar" component={EconomicCalendar} />
         <Route path="/settings" component={SettingsPage} />
         <Route path="/setup"    component={SetupPage}   />
+        <Route path="/trades"   component={TradesPage}  />
 
         <Route component={NotFound} />
       </Switch>
