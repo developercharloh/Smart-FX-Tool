@@ -5,20 +5,8 @@
  */
 
 import { Router } from "express";
-import { db, signalsTable } from "@workspace/db";
+import { db, signalsTable, eaBalancesTable } from "@workspace/db";
 import { eq, and, gte, gt, desc } from "drizzle-orm";
-
-// Shared in-memory balance store (imported from ea.ts re-exported shape)
-interface Mt5Balance {
-  login:       string;
-  balance:     number;
-  equity:      number;
-  currency:    string;
-  server:      string;
-  accountType: "real" | "demo";
-  reportedAt:  number;
-}
-export const _mt5Balances: Mt5Balance[] = [];
 
 const router = Router();
 
@@ -61,31 +49,53 @@ router.get("/pending", async (req, res) => {
   }
 });
 
-// POST /api/mt5/balance-report — EA reports its account balance
-router.post("/balance-report", (req, res) => {
+// POST /api/mt5/balance-report — EA reports its account balance (persisted in DB)
+router.post("/balance-report", async (req, res) => {
   const { login, balance, equity, currency, server, accountType } = req.body;
   if (!login) return res.status(400).json({ error: "login required" });
 
-  const report: Mt5Balance = {
-    login:       String(login),
-    balance:     Number(balance)  || 0,
-    equity:      Number(equity)   || 0,
-    currency:    String(currency  || "USD"),
-    server:      String(server    || ""),
-    accountType: String(accountType || "demo") === "real" ? "real" : "demo",
-    reportedAt:  Date.now(),
-  };
-
-  const idx = _mt5Balances.findIndex(b => b.login === report.login);
-  if (idx >= 0) _mt5Balances[idx] = report;
-  else _mt5Balances.push(report);
-
-  return res.json({ ok: true });
+  try {
+    await db.insert(eaBalancesTable).values({
+      login:       String(login),
+      balance:     Number(balance)  || 0,
+      equity:      Number(equity)   || 0,
+      currency:    String(currency  || "USD"),
+      server:      String(server    || ""),
+      accountType: String(accountType || "demo") === "real" ? "real" : "demo",
+      reportedAt:  new Date(),
+    }).onConflictDoUpdate({
+      target: eaBalancesTable.login,
+      set: {
+        balance:     Number(balance)  || 0,
+        equity:      Number(equity)   || 0,
+        currency:    String(currency  || "USD"),
+        server:      String(server    || ""),
+        accountType: String(accountType || "demo") === "real" ? "real" : "demo",
+        reportedAt:  new Date(),
+      },
+    });
+    return res.json({ ok: true });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 
-// GET /api/mt5/balances — dashboard reads balances
-router.get("/balances", (_req, res) => {
-  return res.json(_mt5Balances);
+// GET /api/mt5/balances — dashboard reads balances from DB
+router.get("/balances", async (_req, res) => {
+  try {
+    const rows = await db.select().from(eaBalancesTable);
+    return res.json(rows.map(r => ({
+      login:       r.login,
+      balance:     r.balance,
+      equity:      r.equity,
+      currency:    r.currency,
+      server:      r.server,
+      accountType: r.accountType,
+      reportedAt:  r.reportedAt.getTime(),
+    })));
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;

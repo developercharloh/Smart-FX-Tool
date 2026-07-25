@@ -1,6 +1,6 @@
 /**
- * MT5AccountsWidget — shows Real & Demo MT5 STD balances from Deriv API.
- * Fetches from /api/deriv/mt5-accounts via the SmartFX API server.
+ * MT5AccountsWidget — shows live MT5 balance reported by the SmartFX EA.
+ * Reads from /api/ea/balance and /api/mt5/balances (DB-persisted, survives restarts).
  */
 
 import { useEffect, useState } from "react";
@@ -9,69 +9,53 @@ import { RefreshCw, TrendingUp, Wifi, WifiOff, ChevronDown, ChevronUp } from "lu
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
 interface MT5Account {
-  login: string;
-  balance: number;
-  currency: string;
+  login:       string;
+  balance:     number;
+  equity:      number;
+  currency:    string;
   accountType: "real" | "demo";
-  name: string;
-  server: string;
+  server:      string;
+  reportedAt:  number;
 }
 
 export function MT5AccountsWidget() {
-  const [accounts, setAccounts]   = useState<MT5Account[] | null>(null);
-  const [loading,  setLoading]    = useState(true);
-  const [error,    setError]      = useState<string | null>(null);
-  const [open,     setOpen]       = useState(true);
+  const [accounts,  setAccounts]  = useState<MT5Account[] | null>(null);
+  const [loading,   setLoading]   = useState(true);
+  const [open,      setOpen]      = useState(true);
   const [lastFetch, setLastFetch] = useState<Date | null>(null);
 
   async function fetchAccounts() {
     setLoading(true);
-    setError(null);
     try {
-      // ── Try EA balance first (reported by the running MT5 EA) ─────────────
-      const [eaRes, mt5Res] = await Promise.all([
+      const [r1, r2] = await Promise.all([
         fetch(`${BASE}/api/ea/balance`),
         fetch(`${BASE}/api/mt5/balances`),
       ]);
-      const eaData  = eaRes.ok  ? await eaRes.json()  : [];
-      const mt5Data = mt5Res.ok ? await mt5Res.json() : [];
-      const combined = [...(Array.isArray(eaData) ? eaData : []), ...(Array.isArray(mt5Data) ? mt5Data : [])];
-      // deduplicate by login
+      const d1: any[] = r1.ok ? await r1.json() : [];
+      const d2: any[] = r2.ok ? await r2.json() : [];
+
+      // Merge and deduplicate by login
       const seen = new Set<string>();
-      const eaDataFinal = combined.filter(b => { if (seen.has(b.login)) return false; seen.add(b.login); return true; });
+      const merged = [...d1, ...d2].filter(b => {
+        if (seen.has(b.login)) return false;
+        seen.add(b.login);
+        return true;
+      });
 
-      if (Array.isArray(eaDataFinal) && eaDataFinal.length > 0) {
-        const eaData = eaDataFinal;
-        // Map EA balance format → MT5Account format
-        const mapped: MT5Account[] = eaData.map((b: any) => ({
-          login:       String(b.login),
-          balance:     Number(b.balance) || 0,
-          currency:    String(b.currency || "USD"),
-          accountType: b.accountType === "real" ? "real" : "demo",
-          name:        b.accountType === "real" ? "Real Account" : "Demo Account",
-          server:      String(b.server || "Deriv-Server"),
-        }));
-        setAccounts(mapped);
-        setLastFetch(new Date());
-        return;
-      }
+      const mapped: MT5Account[] = merged.map((b: any) => ({
+        login:       String(b.login),
+        balance:     Number(b.balance)  || 0,
+        equity:      Number(b.equity)   || 0,
+        currency:    String(b.currency  || "USD"),
+        accountType: b.accountType === "real" ? "real" : "demo",
+        server:      String(b.server    || "Deriv-Server"),
+        reportedAt:  Number(b.reportedAt) || 0,
+      }));
 
-      // ── Fall back to Deriv API if EA hasn't reported yet ─────────────────
-      const r = await fetch(`${BASE}/api/deriv/mt5-accounts`);
-      const text = await r.text();
-      let data: any;
-      try { data = JSON.parse(text); } catch { throw new Error(text); }
-      if (!r.ok || data.error) {
-        const msg: string = data.error ?? text;
-        if (msg.toLowerCase().includes("invalid") || msg.toLowerCase().includes("token")) {
-          throw new Error("EA not yet connected — attach SmartFX_EA to a chart in MT5 to see live balance");
-        }
-        throw new Error(msg);
-      }
-      setAccounts(data);
+      setAccounts(mapped);
       setLastFetch(new Date());
-    } catch (e: any) {
-      setError(e.message ?? "Failed to fetch MT5 accounts");
+    } catch {
+      setAccounts([]);
     } finally {
       setLoading(false);
     }
@@ -79,13 +63,13 @@ export function MT5AccountsWidget() {
 
   useEffect(() => {
     fetchAccounts();
-    // Refresh every 60s
-    const id = setInterval(fetchAccounts, 60_000);
+    const id = setInterval(fetchAccounts, 30_000);
     return () => clearInterval(id);
   }, []);
 
-  const real = accounts?.filter(a => a.accountType === "real") ?? [];
-  const demo = accounts?.filter(a => a.accountType === "demo") ?? [];
+  const connected = accounts !== null && accounts.length > 0;
+  const real = accounts?.filter(a => a.accountType === "real")  ?? [];
+  const demo = accounts?.filter(a => a.accountType === "demo")  ?? [];
 
   return (
     <div
@@ -95,99 +79,76 @@ export function MT5AccountsWidget() {
       {/* Header */}
       <div className="flex items-center gap-3 px-5 py-4">
         <div style={{ background: "rgba(0,255,255,0.08)", border: "1px solid rgba(0,255,255,0.15)" }}
-          className="w-9 h-9 rounded-[10px] flex items-center justify-center shrink-0"
-        >
+          className="w-9 h-9 rounded-[10px] flex items-center justify-center shrink-0">
           <TrendingUp className="w-4 h-4 text-cyan-400" />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-sm font-bold text-white">Deriv MT5</span>
-            {!loading && !error && accounts !== null && (
+            {!loading && connected && (
               <span style={{ background: "rgba(52,211,153,0.1)", border: "1px solid rgba(52,211,153,0.25)" }}
                 className="flex items-center gap-1 text-[10px] font-bold text-emerald-400 px-2 py-0.5 rounded-full">
                 <Wifi className="w-2.5 h-2.5" /> Connected
               </span>
             )}
-            {error && (
-              <span style={{ background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.2)" }}
-                className="flex items-center gap-1 text-[10px] font-bold text-rose-400 px-2 py-0.5 rounded-full">
-                <WifiOff className="w-2.5 h-2.5" /> Error
+            {!loading && !connected && (
+              <span style={{ background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.2)" }}
+                className="flex items-center gap-1 text-[10px] font-bold text-amber-400 px-2 py-0.5 rounded-full">
+                <WifiOff className="w-2.5 h-2.5" /> Waiting for EA
               </span>
             )}
           </div>
-          <p className="text-[11px] text-slate-500">Standard CFD Accounts</p>
+          <p className="text-[11px] text-slate-500">Live MT5 Balance</p>
         </div>
-        <button
-          onClick={fetchAccounts}
-          disabled={loading}
-          className="p-1.5 rounded-lg text-slate-500 hover:text-cyan-400 transition-all disabled:opacity-40"
-        >
+        <button onClick={fetchAccounts} disabled={loading}
+          className="p-1.5 rounded-lg text-slate-500 hover:text-cyan-400 transition-all disabled:opacity-40">
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
         </button>
-        <button
-          onClick={() => setOpen(v => !v)}
-          className="p-1.5 rounded-lg text-slate-500 hover:text-white transition-all"
-        >
+        <button onClick={() => setOpen(v => !v)}
+          className="p-1.5 rounded-lg text-slate-500 hover:text-white transition-all">
           {open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
         </button>
       </div>
 
       {open && (
         <div className="px-5 pb-5 space-y-3">
+
           {/* Loading */}
           {loading && (
             <div className="flex items-center gap-2 py-3">
               <RefreshCw className="w-4 h-4 text-cyan-400 animate-spin" />
-              <span className="text-sm text-slate-400">Fetching MT5 accounts…</span>
+              <span className="text-sm text-slate-400">Loading balance…</span>
             </div>
           )}
 
-          {/* Error */}
-          {!loading && error && (
-            <div style={{ background: "rgba(248,113,113,0.06)", border: "1px solid rgba(248,113,113,0.15)" }}
-              className="rounded-[10px] px-4 py-3 text-sm text-rose-400 space-y-1"
-            >
-              <p className="font-semibold">Cannot connect to Deriv API</p>
-              <p className="text-xs text-slate-500">{error}</p>
+          {/* No data yet */}
+          {!loading && !connected && (
+            <div style={{ background: "rgba(251,191,36,0.05)", border: "1px solid rgba(251,191,36,0.12)" }}
+              className="rounded-[10px] px-4 py-3 space-y-1">
+              <p className="text-xs font-semibold text-amber-400">Waiting for MT5 EA</p>
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                The SmartFX EA is connecting. Balance will appear automatically once MT5 reports it — usually within 15 seconds of attaching the EA to a chart.
+              </p>
               <button onClick={fetchAccounts}
-                className="text-xs text-cyan-400 hover:underline mt-1">Retry</button>
+                className="text-xs text-cyan-400 hover:underline mt-1">Check now</button>
             </div>
           )}
 
           {/* Accounts */}
-          {!loading && !error && accounts !== null && (
+          {!loading && connected && (
             <>
-              {accounts.length === 0 && (
-                <p className="text-sm text-slate-500 py-2">No MT5 accounts found on this token.</p>
-              )}
-
-              {/* Real accounts */}
               {real.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-slate-600">Real</p>
-                  {real.map(acc => (
-                    <AccountRow key={acc.login} acc={acc} />
-                  ))}
+                  {real.map(acc => <AccountRow key={acc.login} acc={acc} />)}
                 </div>
               )}
-
-              {/* Demo accounts */}
               {demo.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-slate-600">Demo</p>
-                  {demo.map(acc => (
-                    <AccountRow key={acc.login} acc={acc} />
-                  ))}
+                  {demo.map(acc => <AccountRow key={acc.login} acc={acc} />)}
                 </div>
               )}
-
-              {/* Trade note */}
-              <div style={{ background: "rgba(251,191,36,0.05)", border: "1px solid rgba(251,191,36,0.12)" }}
-                className="rounded-[8px] px-3 py-2 text-[11px] text-amber-400/80 leading-relaxed"
-              >
-                To execute trades on MT5 CFDs, open the <strong>Deriv MT5 app</strong> and place the order manually, or tap the signal's <strong>Open in MT5</strong> button.
-              </div>
-
               {lastFetch && (
                 <p className="text-[10px] text-slate-600 text-right">
                   Updated {lastFetch.toLocaleTimeString()}
@@ -203,32 +164,47 @@ export function MT5AccountsWidget() {
 
 function AccountRow({ acc }: { acc: MT5Account }) {
   const isReal = acc.accountType === "real";
+  const ageMs  = Date.now() - acc.reportedAt;
+  const fresh  = ageMs < 5 * 60 * 1000; // green dot if reported in last 5 min
+
   return (
     <div
       style={{
         background: isReal ? "rgba(52,211,153,0.04)" : "rgba(139,92,246,0.04)",
-        border: isReal ? "1px solid rgba(52,211,153,0.15)" : "1px solid rgba(139,92,246,0.15)",
+        border:     isReal ? "1px solid rgba(52,211,153,0.15)" : "1px solid rgba(139,92,246,0.15)",
       }}
-      className="rounded-[10px] px-4 py-3 flex items-center justify-between gap-3"
+      className="rounded-[10px] px-4 py-3"
     >
-      <div>
-        <div className="flex items-center gap-2">
-          <span style={isReal
-            ? { background: "rgba(52,211,153,0.1)", color: "#34d399" }
-            : { background: "rgba(139,92,246,0.1)", color: "#a78bfa" }
-          } className="text-[10px] font-bold px-2 py-0.5 rounded uppercase">
-            {isReal ? "Real" : "Demo"}
-          </span>
-          <span className="text-[11px] text-slate-500 font-mono">{acc.login}</span>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <span style={isReal
+              ? { background: "rgba(52,211,153,0.1)", color: "#34d399" }
+              : { background: "rgba(139,92,246,0.1)", color: "#a78bfa" }
+            } className="text-[10px] font-bold px-2 py-0.5 rounded uppercase">
+              {isReal ? "Real" : "Demo"}
+            </span>
+            <span className="text-[11px] text-slate-500 font-mono">#{acc.login}</span>
+            <span className={`w-1.5 h-1.5 rounded-full ${fresh ? "bg-emerald-400" : "bg-slate-600"}`} />
+          </div>
+          <p className="text-[10px] text-slate-600 mt-0.5">{acc.server || "Deriv-Server"}</p>
         </div>
-        <p className="text-[10px] text-slate-600 mt-0.5">{acc.server || "Standard CFD"}</p>
+        <div className="text-right">
+          <p className="text-lg font-bold font-mono text-white">
+            {acc.balance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </p>
+          <p className="text-[10px] text-slate-500">{acc.currency}</p>
+        </div>
       </div>
-      <div className="text-right">
-        <p className="text-base font-bold font-mono text-white">
-          {acc.balance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-        </p>
-        <p className="text-[10px] text-slate-500">{acc.currency}</p>
-      </div>
+      {acc.equity !== acc.balance && (
+        <div className="mt-2 pt-2 flex items-center justify-between"
+          style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}>
+          <span className="text-[10px] text-slate-600">Equity</span>
+          <span className={`text-[11px] font-mono font-bold ${acc.equity >= acc.balance ? "text-emerald-400" : "text-rose-400"}`}>
+            {acc.equity.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {acc.currency}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
