@@ -29,9 +29,17 @@ export function MT5AccountsWidget() {
     setError(null);
     try {
       const r = await fetch(`${BASE}/api/deriv/mt5-accounts`);
-      if (!r.ok) throw new Error(await r.text());
-      const data = await r.json();
-      if (data.error) throw new Error(data.error);
+      const text = await r.text();
+      let data: any;
+      try { data = JSON.parse(text); } catch { throw new Error(text); }
+      if (!r.ok || data.error) {
+        const msg: string = data.error ?? text;
+        // Surface a friendlier hint for the most common auth failure
+        if (msg.toLowerCase().includes("invalid") || msg.toLowerCase().includes("token")) {
+          throw new Error("API token rejected — regenerate it with Admin permission on Deriv (see below)");
+        }
+        throw new Error(msg);
+      }
       setAccounts(data);
       setLastFetch(new Date());
     } catch (e: any) {
