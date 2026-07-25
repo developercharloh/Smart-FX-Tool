@@ -35,7 +35,7 @@ const BASE = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
 
 // Which markets each watchlist touches
 const WATCHLIST_MARKETS: Record<string, ("forex"|"metals"|"energy"|"crypto"|"synthetic")[]> = {
-  "Full Scan":         ["forex","metals","energy","crypto"],
+  "Full Scan":         ["forex","metals","energy","crypto","synthetic"],
   "Forex Majors":      ["forex"],
   "Forex Crosses":     ["forex"],
   "Metals & Energy":   ["metals","energy"],
@@ -51,6 +51,8 @@ const SCAN_WATCHLISTS: Record<string, string[]> = {
     "XAUUSD","XAGUSD",
     "BTCUSD","ETHUSD",
     "USOIL","UKOIL",
+    "R_10","R_25","R_50","R_75","R_100",
+    "BOOM500","BOOM1000","CRASH500","CRASH1000",
   ],
   "Forex Majors":  ["EURUSD","GBPUSD","USDJPY","AUDUSD","USDCAD","NZDUSD","USDCHF"],
   "Forex Crosses": ["GBPJPY","EURJPY","EURGBP","AUDJPY","GBPCAD","AUDNZD"],

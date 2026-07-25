@@ -54,8 +54,13 @@ export function buildDerivTradeUrl(pair: string, direction: "BUY" | "SELL", stak
 
 export function useDerivTrade() {
   const [settings, setSettings] = useState<TradeSettings>(() => {
-    try { return { stake: 1, multiplier: 10, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "{}") }; }
-    catch { return { stake: 1, multiplier: 10 }; }
+    try {
+      const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "{}");
+      // Clamp multiplier to valid options if old value stored
+      const validMultipliers = [10, 20, 50, 100];
+      if (saved.multiplier && !validMultipliers.includes(saved.multiplier)) saved.multiplier = 10;
+      return { stake: 1, multiplier: 10, ...saved };
+    } catch { return { stake: 1, multiplier: 10 }; }
   });
   const [lastResult, setResult] = useState<TradeResult | null>(null);
   const [status, setStatus]     = useState<TradeStatus>("idle");

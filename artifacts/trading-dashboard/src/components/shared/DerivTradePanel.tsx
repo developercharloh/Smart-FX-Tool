@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 import { useDerivTradeCtx } from "@/contexts/DerivTradeContext";
 import { buildDerivTradeUrl } from "@/hooks/useDerivTrade";
 
-const MULTIPLIERS = [10, 50, 100, 200, 500];
+const MULTIPLIERS = [10, 20, 50, 100];
 const STAKES      = [1, 2, 5, 10, 20, 50];
 
 export function DerivTradePanel() {
@@ -113,10 +113,12 @@ export function DerivTradePanel() {
 
               <div
                 style={{ background: "rgba(251,191,36,0.05)", border: "1px solid rgba(251,191,36,0.15)" }}
-                className="rounded-[8px] px-3 py-2 text-[10px] text-amber-400 leading-relaxed"
+                className="rounded-[8px] px-3 py-2 text-[10px] text-amber-400 leading-relaxed space-y-1"
               >
-                Each trade: <strong>${settings.stake} stake</strong> · <strong>x{settings.multiplier} multiplier</strong>
-                <span className="text-slate-600"> — max loss ${settings.stake}, gains are unlimited while open</span>
+                <div>Each trade: <strong>${settings.stake} stake</strong> · <strong>x{settings.multiplier} multiplier</strong></div>
+                <div className="text-slate-500">
+                  = <strong className="text-slate-400">${(settings.stake * settings.multiplier).toFixed(0)} market exposure</strong> · max loss is your stake only (${settings.stake})
+                </div>
               </div>
             </div>
           )}
