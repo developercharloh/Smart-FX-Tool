@@ -334,6 +334,7 @@ router.get("/settings", async (_req, res) => {
       dailyLossLimit:    s.dailyLossLimit,
       lotSize:           s.lotSize,
       minConfidence:     s.minConfidence,
+      minProfitClose:    s.minProfitClose,
       updatedAt:         s.updatedAt,
     });
   } catch (err: any) {
@@ -343,24 +344,20 @@ router.get("/settings", async (_req, res) => {
 
 // POST /api/ea/settings — dashboard saves new settings
 router.post("/settings", async (req, res) => {
-  const { dailyProfitTarget, dailyLossLimit, lotSize, minConfidence } = req.body;
+  const { dailyProfitTarget, dailyLossLimit, lotSize, minConfidence, minProfitClose } = req.body;
   try {
-    await db.insert(eaSettingsTable).values({
+    const vals = {
       id:                1,
       dailyProfitTarget: Math.max(0, Number(dailyProfitTarget) || 0),
       dailyLossLimit:    Math.max(0, Number(dailyLossLimit)    || 0),
       lotSize:           Math.max(0.01, Number(lotSize)        || 0.01),
       minConfidence:     Math.min(100, Math.max(1, Number(minConfidence) || 80)),
+      minProfitClose:    Math.max(0, Number(minProfitClose)    || 0),
       updatedAt:         new Date(),
-    }).onConflictDoUpdate({
+    };
+    await db.insert(eaSettingsTable).values(vals).onConflictDoUpdate({
       target: eaSettingsTable.id,
-      set: {
-        dailyProfitTarget: Math.max(0, Number(dailyProfitTarget) || 0),
-        dailyLossLimit:    Math.max(0, Number(dailyLossLimit)    || 0),
-        lotSize:           Math.max(0.01, Number(lotSize)        || 0.01),
-        minConfidence:     Math.min(100, Math.max(1, Number(minConfidence) || 80)),
-        updatedAt:         new Date(),
-      },
+      set: vals,
     });
     return res.json({ ok: true });
   } catch (err: any) {

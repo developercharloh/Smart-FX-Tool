@@ -30,10 +30,11 @@ bool     g_stopped        = false;
 string   g_lastClosedPair = "";
 
 //--- Dynamic settings pulled from dashboard (updated every 60s)
-double g_dynProfitTarget = 0;
-double g_dynLossLimit    = 0;
-double g_dynLotSize      = 0;
-int    g_dynMinConf      = 0;
+double g_dynProfitTarget  = 0;
+double g_dynLossLimit     = 0;
+double g_dynLotSize       = 0;
+int    g_dynMinConf       = 0;
+double g_dynMinProfitClose = 0;
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -63,6 +64,7 @@ void OnTimer()
 {
    PollSettings();           // Pull latest settings from dashboard (every 60s)
    if (CheckDailyTarget()) return;
+   CheckFloatingProfit();    // Close position early if min profit reached
    PollForceQueue();         // Manual execute from dashboard
    PollAndTrade();           // Auto-signal: one trade at a time
    ReportPositions();        // Send open positions to dashboard (every 10s)
@@ -96,10 +98,13 @@ void PollSettings()
    bool changed = (profitTarget != g_dynProfitTarget || lossLimit != g_dynLossLimit ||
                    lotSize != g_dynLotSize || minConf != g_dynMinConf);
 
-   g_dynProfitTarget = profitTarget;
-   g_dynLossLimit    = lossLimit;
-   g_dynLotSize      = (lotSize  >= 0.01) ? lotSize  : 0;
-   g_dynMinConf      = (minConf  >= 1)    ? minConf  : 0;
+   double minProfitClose = StringToDouble(JsNum(json, "minProfitClose"));
+
+   g_dynProfitTarget   = profitTarget;
+   g_dynLossLimit      = lossLimit;
+   g_dynLotSize        = (lotSize  >= 0.01) ? lotSize  : 0;
+   g_dynMinConf        = (minConf  >= 1)    ? minConf  : 0;
+   g_dynMinProfitClose = (minProfitClose > 0) ? minProfitClose : 0;
 
    if (changed)
       Print("SmartFX: Settings from dashboard — ProfitTarget:$", g_dynProfitTarget,
@@ -110,10 +115,36 @@ void PollSettings()
 }
 
 //--- Effective values: dashboard setting takes priority over EA input
-double EffectiveLotSize() { return (g_dynLotSize  >= 0.01) ? g_dynLotSize  : InpLotSize; }
-int    EffectiveMinConf()  { return (g_dynMinConf  >= 1)    ? g_dynMinConf  : InpMinConfidence; }
-double EffectiveProfitTarget() { return g_dynProfitTarget; }
-double EffectiveLossLimit()    { return g_dynLossLimit; }
+double EffectiveLotSize()      { return (g_dynLotSize  >= 0.01) ? g_dynLotSize  : InpLotSize; }
+int    EffectiveMinConf()       { return (g_dynMinConf  >= 1)    ? g_dynMinConf  : InpMinConfidence; }
+double EffectiveProfitTarget()  { return g_dynProfitTarget; }
+double EffectiveLossLimit()     { return g_dynLossLimit; }
+double EffectiveMinProfitClose(){ return g_dynMinProfitClose; }
+
+//+------------------------------------------------------------------+
+//| Close position early when floating profit >= minProfitClose       |
+//+------------------------------------------------------------------+
+void CheckFloatingProfit()
+{
+   double threshold = EffectiveMinProfitClose();
+   if (threshold <= 0) return;  // disabled
+
+   for (int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong ticket = PositionGetTicket(i);
+      if (!PositionSelectByTicket(ticket)) continue;
+      if ((int)PositionGetInteger(POSITION_MAGIC) != InpMagicNumber) continue;
+
+      double profit = PositionGetDouble(POSITION_PROFIT);
+      if (profit >= threshold)
+      {
+         string sym = PositionGetString(POSITION_SYMBOL);
+         Print("SmartFX: Min profit $", DoubleToString(threshold, 2),
+               " reached ($", DoubleToString(profit, 2), ") — closing ", sym, " early");
+         g_trade.PositionClose(ticket);
+      }
+   }
+}
 
 //+------------------------------------------------------------------+
 //| Detect trade close -> ready for next signal immediately           |

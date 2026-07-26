@@ -6,5 +6,6 @@ export const eaSettingsTable = pgTable("ea_settings", {
   dailyLossLimit:    real("daily_loss_limit").notNull().default(0),
   lotSize:           real("lot_size").notNull().default(0.01),
   minConfidence:     integer("min_confidence").notNull().default(80),
+  minProfitClose:    real("min_profit_close").notNull().default(0),
   updatedAt:         timestamp("updated_at").notNull().defaultNow(),
 });

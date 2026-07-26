@@ -13,6 +13,7 @@ interface EASettings {
   dailyLossLimit:    number;
   lotSize:           number;
   minConfidence:     number;
+  minProfitClose:    number;
 }
 
 export function EASettingsPanel() {
@@ -21,6 +22,7 @@ export function EASettingsPanel() {
     dailyLossLimit:    0,
     lotSize:           0.01,
     minConfidence:     80,
+    minProfitClose:    0,
   });
   const [loading,  setLoading]  = useState(true);
   const [saving,   setSaving]   = useState(false);
@@ -37,6 +39,7 @@ export function EASettingsPanel() {
           dailyLossLimit:    d.dailyLossLimit    ?? 0,
           lotSize:           d.lotSize           ?? 0.01,
           minConfidence:     d.minConfidence      ?? 80,
+          minProfitClose:    d.minProfitClose     ?? 0,
         });
       }
     } catch { /* silent */ } finally {
@@ -137,6 +140,16 @@ export function EASettingsPanel() {
                   onChange={v => update("minConfidence", v)}
                   min={50} max={100} step={1} placeholder="e.g. 80"
                   accent="violet"
+                />
+
+                {/* Min Profit Close */}
+                <SettingField
+                  label="Min Profit Close (USD)"
+                  hint="Close position immediately when floating profit reaches this amount. 0 = wait for TP."
+                  value={settings.minProfitClose}
+                  onChange={v => update("minProfitClose", v)}
+                  min={0} step={0.5} placeholder="e.g. 1"
+                  accent="emerald"
                 />
               </div>
 
