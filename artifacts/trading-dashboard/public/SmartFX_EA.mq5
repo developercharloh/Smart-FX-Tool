@@ -116,7 +116,7 @@ double EffectiveProfitTarget() { return g_dynProfitTarget; }
 double EffectiveLossLimit()    { return g_dynLossLimit; }
 
 //+------------------------------------------------------------------+
-//| Detect trade close → ready for next signal immediately            |
+//| Detect trade close -> ready for next signal immediately           |
 //+------------------------------------------------------------------+
 void OnTradeTransaction(const MqlTradeTransaction &trans,
                         const MqlTradeRequest     &request,
@@ -133,7 +133,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
    double profit = HistoryDealGetDouble(trans.deal, DEAL_PROFIT);
    g_lastClosedPair = sym;
 
-   Print("SmartFX: Closed [", (profit >= 0 ? "TP" : "SL"), "] — ", sym,
+   Print("SmartFX: Closed [", (profit >= 0 ? "TP" : "SL"), "] -- ", sym,
          " | P&L: $", DoubleToString(profit, 2), " | Ready for next signal");
    UpdateComment();
 }
@@ -172,25 +172,25 @@ bool CheckDailyTarget()
    }
 
    g_stopped = true;
-   Comment("SmartFX v2.4 | *** STOPPED — ", reason, " ***");
+   Comment("SmartFX v2.4 | *** STOPPED -- ", reason, " ***");
    return true;
 }
 
 //+------------------------------------------------------------------+
-//| Auto-signal polling — one trade at a time, chains after close     |
+//| Auto-signal polling -- one trade at a time, chains after close    |
 //+------------------------------------------------------------------+
 void PollAndTrade()
 {
    if (HasAnyPosition())
    {
       double netPnL = AccountInfoDouble(ACCOUNT_EQUITY) - g_startBalance;
-      Comment("SmartFX v2.4 | TRADE OPEN — P&L:$", DoubleToString(netPnL, 2),
+      Comment("SmartFX v2.4 | TRADE OPEN -- P&L:$", DoubleToString(netPnL, 2),
               " | Lots:", EffectiveLotSize(), " | Waiting for TP/SL...");
       return;
    }
    if (HasAnyPendingOrder())
    {
-      Comment("SmartFX v2.4 | Limit order pending — waiting for fill...");
+      Comment("SmartFX v2.4 | Limit order pending -- waiting for fill...");
       return;
    }
 
@@ -209,7 +209,7 @@ void PollAndTrade()
    {
       int err = GetLastError();
       if (err == 4060)
-         Print("SmartFX: WebRequest blocked — add ", InpApiUrl, " to allowed URLs.");
+         Print("SmartFX: WebRequest blocked -- add ", InpApiUrl, " to allowed URLs.");
       return;
    }
    if (httpCode != 200) return;
@@ -235,7 +235,7 @@ void PollAndTrade()
 
    if (symbol == g_lastClosedPair && g_lastClosedPair != "")
    {
-      Print("SmartFX: Skipping ", pair, " — same as last closed, waiting for different pair");
+      Print("SmartFX: Skipping ", pair, " -- same as last closed, waiting for different pair");
       g_lastId = sigId;
       return;
    }
@@ -259,10 +259,10 @@ void PollAndTrade()
          ok = g_trade.SellLimit(autoLots, entry, symbol, sl, tp,
                                 ORDER_TIME_SPECIFIED, expiry, "SmartFX #" + sigId);
       if (ok)
-         Print("SmartFX: Limit order placed — ", dir, " ", symbol, " @ ", entry,
+         Print("SmartFX: Limit order placed -- ", dir, " ", symbol, " @ ", entry,
                " | Expires ", InpOrderExpireMins, "min");
       else
-         Print("SmartFX: Limit failed (", g_trade.ResultRetcode(), ") — market fallback");
+         Print("SmartFX: Limit failed (", g_trade.ResultRetcode(), ") -- market fallback");
    }
    if (!ok)
    {
@@ -274,19 +274,19 @@ void PollAndTrade()
    if (ok)
    {
       g_trades++;
-      Print("SmartFX AUTO: Order placed ✓ — ", dir, " ", symbol,
+      Print("SmartFX AUTO: Order placed -- ", dir, " ", symbol,
             " | Ticket:", g_trade.ResultOrder(), " | Total:", g_trades);
       ReportTrade(g_trade.ResultOrder(), symbol, dir, autoLots, sl, tp, sigId, conf, tf);
    }
    else
-      Print("SmartFX AUTO: Order FAILED — ", g_trade.ResultRetcodeDescription(),
+      Print("SmartFX AUTO: Order FAILED -- ", g_trade.ResultRetcodeDescription(),
             " (", g_trade.ResultRetcode(), ")");
 
    UpdateComment();
 }
 
 //+------------------------------------------------------------------+
-//| Manual execute from dashboard — always market order               |
+//| Manual execute from dashboard -- always market order              |
 //+------------------------------------------------------------------+
 void PollForceQueue()
 {
@@ -336,12 +336,12 @@ void PollForceQueue()
    if (ok)
    {
       g_trades++;
-      Print("SmartFX MANUAL: Trade opened ✓ — ", dir, " ", symbol,
+      Print("SmartFX MANUAL: Trade opened -- ", dir, " ", symbol,
             " | Ticket:", g_trade.ResultOrder(), " | Lots:", lots);
       ReportTrade(g_trade.ResultOrder(), symbol, dir, lots, sl, tp, sigId, conf, tf);
    }
    else
-      Print("SmartFX MANUAL: Trade FAILED — ", g_trade.ResultRetcodeDescription(),
+      Print("SmartFX MANUAL: Trade FAILED -- ", g_trade.ResultRetcodeDescription(),
             " (", g_trade.ResultRetcode(), ")");
 
    UpdateComment();
@@ -386,7 +386,6 @@ void ReportPositions()
       double profit   = PositionGetDouble(POSITION_PROFIT);
       string comment  = PositionGetString(POSITION_COMMENT);
 
-      // Extract signal ID from comment "SmartFX #94" -> "94"
       string sigId = "";
       int hashPos = StringFind(comment, "#");
       if (hashPos >= 0) sigId = StringSubstr(comment, hashPos + 1);
@@ -448,8 +447,8 @@ void ReportTrade(ulong ticket, string symbol, string direction,
                  double lots, double sl, double tp,
                  string sigId, int confidence, string timeframe)
 {
-   long   login    = AccountInfoInteger(ACCOUNT_LOGIN);
-   double openPx   = PositionGetDouble(POSITION_PRICE_OPEN);
+   long   login  = AccountInfoInteger(ACCOUNT_LOGIN);
+   double openPx = PositionGetDouble(POSITION_PRICE_OPEN);
    if (openPx == 0) openPx = g_trade.ResultPrice();
 
    string json = StringFormat(
@@ -477,7 +476,7 @@ void UpdateComment()
       if (PositionSelectByTicket(t) && (int)PositionGetInteger(POSITION_MAGIC) == InpMagicNumber)
          open++;
    }
-   string status  = (open > 0) ? "TRADE OPEN — waiting for TP/SL" : "Waiting for next signal";
+   string status  = (open > 0) ? "TRADE OPEN -- waiting for TP/SL" : "Waiting for next signal";
    double pt      = EffectiveProfitTarget();
    double ll      = EffectiveLossLimit();
    string targets = "";
