@@ -11,6 +11,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { SessionClock } from "@/components/shared/SessionClock";
 import { DerivTradePanel } from "@/components/shared/DerivTradePanel";
 import { MT5AccountsWidget } from "@/components/shared/MT5AccountsWidget";
+import { LivePositionsWidget } from "@/components/shared/LivePositionsWidget";
+import { EASettingsPanel } from "@/components/shared/EASettingsPanel";
 import { cn } from "@/lib/utils";
 
 function computeStreak(recentActivity: any[]): { count: number; type: "WIN" | "LOSS" | null } {
@@ -55,6 +57,12 @@ export default function Dashboard() {
 
       {/* MT5 Account Balances */}
       <MT5AccountsWidget />
+
+      {/* Live Positions + EA Settings side by side on large screens */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <LivePositionsWidget />
+        <EASettingsPanel />
+      </div>
 
       {/* Session Clock */}
       <SessionClock />

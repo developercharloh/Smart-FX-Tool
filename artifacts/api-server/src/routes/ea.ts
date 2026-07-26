@@ -6,7 +6,7 @@
 
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { signalsTable, eaBalancesTable, forceQueueTable } from "@workspace/db";
+import { signalsTable, eaBalancesTable, forceQueueTable, eaSettingsTable } from "@workspace/db";
 import { eq, and, gte, gt, desc } from "drizzle-orm";
 
 const router = Router();
@@ -252,10 +252,125 @@ router.post("/force-queue/:id/done", async (req, res) => {
   }
 });
 
+// ── In-memory open positions (reported by EA every 10s) ───────────────────────
+interface EAPosition {
+  ticket:       string;
+  login:        string;
+  symbol:       string;
+  direction:    "BUY" | "SELL";
+  lots:         number;
+  openPrice:    number;
+  currentPrice: number;
+  sl:           number;
+  tp:           number;
+  profit:       number;
+  signalId:     string;
+  reportedAt:   number;
+}
+// key = login, value = positions for that login (replaced on each report)
+const _positionsByLogin = new Map<string, EAPosition[]>();
+
+// POST /api/ea/positions — EA reports all currently open positions
+router.post("/positions", (req, res) => {
+  const positions = req.body;
+  if (!Array.isArray(positions)) return res.status(400).json({ error: "array expected" });
+
+  const now = Date.now();
+  // Group by login so multiple EA instances don't overwrite each other
+  const byLogin = new Map<string, EAPosition[]>();
+  for (const p of positions) {
+    const login = String(p.login || "unknown");
+    if (!byLogin.has(login)) byLogin.set(login, []);
+    byLogin.get(login)!.push({
+      ticket:       String(p.ticket),
+      login,
+      symbol:       String(p.symbol),
+      direction:    p.direction === "BUY" ? "BUY" : "SELL",
+      lots:         Number(p.lots)         || 0,
+      openPrice:    Number(p.openPrice)    || 0,
+      currentPrice: Number(p.currentPrice) || 0,
+      sl:           Number(p.sl)           || 0,
+      tp:           Number(p.tp)           || 0,
+      profit:       Number(p.profit)       || 0,
+      signalId:     String(p.signalId      || ""),
+      reportedAt:   now,
+    });
+  }
+  for (const [login, pos] of byLogin) _positionsByLogin.set(login, pos);
+
+  // If login sent empty array, clear its positions
+  if (positions.length === 0 && positions._login) {
+    _positionsByLogin.delete(positions._login);
+  }
+
+  return res.json({ ok: true });
+});
+
+// GET /api/ea/positions — dashboard reads all open positions
+router.get("/positions", (_req, res) => {
+  const cutoff = Date.now() - 2 * 60 * 1000; // 2-min stale threshold
+  const all: EAPosition[] = [];
+  for (const positions of _positionsByLogin.values()) {
+    for (const p of positions) {
+      if (p.reportedAt > cutoff) all.push(p);
+    }
+  }
+  return res.json(all);
+});
+
+// ── EA Settings (DB-persisted so dashboard can set, EA can read) ──────────────
+
+// GET /api/ea/settings — EA polls this every 60s
+router.get("/settings", async (_req, res) => {
+  try {
+    const rows = await db.select().from(eaSettingsTable).where(eq(eaSettingsTable.id, 1)).limit(1);
+    if (!rows[0]) {
+      // Return defaults if not yet set
+      return res.json({ dailyProfitTarget: 0, dailyLossLimit: 0, lotSize: 0.01, minConfidence: 80 });
+    }
+    const s = rows[0];
+    return res.json({
+      dailyProfitTarget: s.dailyProfitTarget,
+      dailyLossLimit:    s.dailyLossLimit,
+      lotSize:           s.lotSize,
+      minConfidence:     s.minConfidence,
+      updatedAt:         s.updatedAt,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/ea/settings — dashboard saves new settings
+router.post("/settings", async (req, res) => {
+  const { dailyProfitTarget, dailyLossLimit, lotSize, minConfidence } = req.body;
+  try {
+    await db.insert(eaSettingsTable).values({
+      id:                1,
+      dailyProfitTarget: Math.max(0, Number(dailyProfitTarget) || 0),
+      dailyLossLimit:    Math.max(0, Number(dailyLossLimit)    || 0),
+      lotSize:           Math.max(0.01, Number(lotSize)        || 0.01),
+      minConfidence:     Math.min(100, Math.max(1, Number(minConfidence) || 80)),
+      updatedAt:         new Date(),
+    }).onConflictDoUpdate({
+      target: eaSettingsTable.id,
+      set: {
+        dailyProfitTarget: Math.max(0, Number(dailyProfitTarget) || 0),
+        dailyLossLimit:    Math.max(0, Number(dailyLossLimit)    || 0),
+        lotSize:           Math.max(0.01, Number(lotSize)        || 0.01),
+        minConfidence:     Math.min(100, Math.max(1, Number(minConfidence) || 80)),
+        updatedAt:         new Date(),
+      },
+    });
+    return res.json({ ok: true });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // ── GET /api/ea/status ────────────────────────────────────────────────────────
-// Lightweight ping so the setup page can confirm the server is reachable.
 router.get("/status", (_req, res) => {
-  res.json({ ok: true, ts: Date.now(), version: "2.0" });
+  res.json({ ok: true, ts: Date.now(), version: "2.3" });
 });
 
 export default router;
