@@ -116,6 +116,10 @@ void PollForceQueue()
       return;
    }
 
+   // Normalize lot size to symbol constraints
+   lots = NormalizeLots(symbol, lots);
+   if (lots <= 0) { Print("SmartFX MANUAL: Invalid volume after normalization — skipping"); return; }
+
    // Execute trade
    bool ok = false;
    if (dir == "BUY")
@@ -246,12 +250,16 @@ void PollAndTrade()
       return;
    }
 
+   // Normalize lot size to symbol constraints
+   double autoLots = NormalizeLots(symbol, InpLotSize);
+   if (autoLots <= 0) { Print("SmartFX: Invalid volume after normalization — skipping"); g_lastId = sigId; return; }
+
    // Execute
    bool ok = false;
    if (dir == "BUY")
-      ok = g_trade.Buy(InpLotSize, symbol, 0, sl, tp, "SmartFX #" + sigId);
+      ok = g_trade.Buy(autoLots, symbol, 0, sl, tp, "SmartFX #" + sigId);
    else if (dir == "SELL")
-      ok = g_trade.Sell(InpLotSize, symbol, 0, sl, tp, "SmartFX #" + sigId);
+      ok = g_trade.Sell(autoLots, symbol, 0, sl, tp, "SmartFX #" + sigId);
    else
    {
       Print("SmartFX: Unknown direction [", dir, "]");
@@ -381,6 +389,31 @@ string JsNum(const string &json, const string &key)
    }
    string v = StringSubstr(json, pos, end - pos);
    return (v == "" || v == "null") ? "0" : v;
+}
+
+//+------------------------------------------------------------------+
+//| Normalize lot size to symbol's volume constraints                 |
+//+------------------------------------------------------------------+
+double NormalizeLots(const string &symbol, double lots)
+{
+   double minVol  = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
+   double maxVol  = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MAX);
+   double step    = SymbolInfoDouble(symbol, SYMBOL_VOLUME_STEP);
+   if (step <= 0) step = 0.01;
+
+   // Round to nearest valid step
+   lots = MathRound(lots / step) * step;
+
+   // Clamp to min/max
+   if (lots < minVol) lots = minVol;
+   if (lots > maxVol) lots = maxVol;
+
+   // Final precision
+   lots = NormalizeDouble(lots, 2);
+
+   Print("SmartFX: Volume normalized → ", lots,
+         " (min:", minVol, " max:", maxVol, " step:", step, ")");
+   return lots;
 }
 
 //+------------------------------------------------------------------+
