@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                                               SmartFX_EA.mq5     |
-//|                        SmartFX AI Trading System v2.4            |
+//|                        SmartFX AI Trading System v2.5            |
 //|          Polls smart-fx-tool.replit.app and auto-trades MT5      |
 //+------------------------------------------------------------------+
 #property copyright "SmartFX AI"
-#property version   "2.40"
+#property version   "2.50"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -47,7 +47,7 @@ int OnInit()
    g_stopped      = false;
 
    EventSetTimer(InpPollSeconds);
-   Print("SmartFX EA v2.4 started | Balance:", g_startBalance,
+   Print("SmartFX EA v2.5 started | Balance:", g_startBalance,
          " | API:", InpApiUrl);
    UpdateComment();
    return INIT_SUCCEEDED;
@@ -571,15 +571,30 @@ string ResolveSymbol(const string &pair)
    }
 
    string synthMap[][2] = {
+      // Standard Volatility indices
       {"R_10",      "Volatility 10 Index"},
       {"R_25",      "Volatility 25 Index"},
       {"R_50",      "Volatility 50 Index"},
       {"R_75",      "Volatility 75 Index"},
       {"R_100",     "Volatility 100 Index"},
+      // 1-second Volatility indices
+      {"1HZ10V",    "Volatility 10 (1s) Index"},
+      {"1HZ25V",    "Volatility 25 (1s) Index"},
+      {"1HZ50V",    "Volatility 50 (1s) Index"},
+      {"1HZ75V",    "Volatility 75 (1s) Index"},
+      {"1HZ100V",   "Volatility 100 (1s) Index"},
+      // Boom indices
       {"BOOM500",   "Boom 500 Index"},
       {"BOOM1000",  "Boom 1000 Index"},
+      // Crash indices
       {"CRASH500",  "Crash 500 Index"},
       {"CRASH1000", "Crash 1000 Index"},
+      // Jump indices
+      {"JD10",      "Jump 10 Index"},
+      {"JD25",      "Jump 25 Index"},
+      {"JD50",      "Jump 50 Index"},
+      {"JD75",      "Jump 75 Index"},
+      {"JD100",     "Jump 100 Index"},
    };
    for (int i = 0; i < ArraySize(synthMap) / 2; i++)
    {
