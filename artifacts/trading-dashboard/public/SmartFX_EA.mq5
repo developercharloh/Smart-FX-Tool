@@ -1,30 +1,37 @@
 //+------------------------------------------------------------------+
 //|                                               SmartFX_EA.mq5     |
-//|                        SmartFX AI Trading System v2.1            |
+//|                        SmartFX AI Trading System v2.3            |
 //|          Polls smart-fx-tool.replit.app and auto-trades MT5      |
 //+------------------------------------------------------------------+
 #property copyright "SmartFX AI"
-#property version   "2.10"
+#property version   "2.30"
 #property strict
 
 #include <Trade\Trade.mqh>
 
-//--- Input parameters
-input string InpApiUrl          = "https://smart-fx-tool.vercel.app"; // SmartFX API Base URL
-input double InpLotSize         = 0.01;     // Default Lot Size (auto-signals)
-input int    InpMagicNumber     = 20260725; // Magic Number (unique per EA instance)
-input int    InpMinConfidence   = 80;       // Min Signal Confidence (%) for auto-trade
-input int    InpMaxSpreadPts    = 30;       // Max Allowed Spread (points)
-input int    InpPollSeconds     = 10;       // Poll Interval (seconds)
-input bool   InpTradeForex      = true;     // Trade Forex & Metals
-input bool   InpTradeSynthetics = false;    // Trade Synthetic Indices
+//--- Inputs
+input string InpApiUrl            = "https://smart-fx-tool.vercel.app"; // SmartFX API Base URL
+input double InpLotSize           = 0.01;    // Default Lot Size
+input int    InpMagicNumber       = 20260725; // Magic Number
+input int    InpMinConfidence     = 80;      // Min Signal Confidence (%)
+input int    InpPollSeconds       = 10;      // Poll Interval (seconds)
+
+//--- Risk management (0 = disabled)
+input double InpDailyProfitTarget = 0;       // Daily Profit Target USD (0=off)
+input double InpDailyLossLimit    = 0;       // Daily Loss Limit USD (0=off)
+
+//--- Entry precision
+input bool   InpUseLimitOrders    = true;    // Wait for entry price (limit orders)
+input int    InpOrderExpireMins   = 60;      // Pending order expiry (minutes)
 
 //--- Globals
 CTrade   g_trade;
-string   g_lastId      = "0";
-datetime g_lastPoll    = 0;
-int      g_trades      = 0;
-datetime g_lastBalance = 0;
+string   g_lastId          = "0";
+int      g_trades          = 0;
+datetime g_lastBalance     = 0;
+double   g_startBalance    = 0;
+bool     g_stopped         = false;
+string   g_lastClosedPair  = "";   // Last pair that closed — avoid immediate repeat
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -33,14 +40,13 @@ int OnInit()
    g_trade.SetDeviationInPoints(10);
    g_trade.SetTypeFilling(ORDER_FILLING_IOC);
 
+   g_startBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+   g_stopped      = false;
+
    EventSetTimer(InpPollSeconds);
-
-   Comment("SmartFX v2.1 | Magic: ", InpMagicNumber,
-           " | Conf: >=", InpMinConfidence, "%",
-           " | Lots: ", InpLotSize);
-
-   Print("SmartFX EA v2.1 started. Server: ", InpApiUrl,
-         " | Poll: every ", InpPollSeconds, "s");
+   Print("SmartFX EA v2.3 started | Balance:", g_startBalance,
+         " | LimitOrders:", InpUseLimitOrders);
+   UpdateComment();
    return INIT_SUCCEEDED;
 }
 
@@ -48,124 +54,100 @@ void OnDeinit(const int reason)
 {
    EventKillTimer();
    Comment("");
-   Print("SmartFX EA stopped. Reason: ", reason);
 }
 
 void OnTimer()
 {
-   PollForceQueue();   // Manual "Execute Trade" from dashboard — check first
-   PollAndTrade();     // Auto-signal polling
-   ReportBalance();    // Balance reporting
+   if (CheckDailyTarget()) return;   // Stop if risk limit hit
+   PollForceQueue();                 // Manual execute from dashboard
+   PollAndTrade();                   // Auto-signal: one trade at a time
+   ReportBalance();
 }
 
 //+------------------------------------------------------------------+
-//| Poll manual force-execute queue from dashboard                    |
+//| Detect trade close — immediately ready for next signal            |
 //+------------------------------------------------------------------+
-void PollForceQueue()
+void OnTradeTransaction(const MqlTradeTransaction &trans,
+                        const MqlTradeRequest     &request,
+                        const MqlTradeResult      &result)
 {
-   string url = InpApiUrl + "/api/ea/force-queue";
+   if (trans.type != TRADE_TRANSACTION_DEAL_ADD) return;
+   if (!HistoryDealSelect(trans.deal)) return;
 
-   char   postData[], response[];
-   string respHeaders;
-   ArrayResize(postData, 0);
+   long magic = HistoryDealGetInteger(trans.deal, DEAL_MAGIC);
+   long entry = HistoryDealGetInteger(trans.deal, DEAL_ENTRY);
+   if (magic != InpMagicNumber) return;
+   if (entry != DEAL_ENTRY_OUT) return;
 
-   int httpCode = WebRequest("GET", url, "Content-Type: application/json\r\n",
-                             8000, postData, response, respHeaders);
+   string sym    = HistoryDealGetString(trans.deal, DEAL_SYMBOL);
+   double profit = HistoryDealGetDouble(trans.deal, DEAL_PROFIT);
+   string result_str = (profit >= 0) ? "TP" : "SL";
 
-   if (httpCode != 200) return;
+   g_lastClosedPair = sym;
 
-   string json = CharArrayToString(response, 0, WHOLE_ARRAY, CP_UTF8);
-   StringTrimLeft(json);
-   StringTrimRight(json);
+   Print("SmartFX: Position closed [", result_str, "] — ", sym,
+         " | Profit: $", DoubleToString(profit, 2),
+         " | Ready for next signal on different pair");
 
-   // Empty array — nothing to do
-   if (json == "" || json == "[]" || StringFind(json, "\"id\"") < 0) return;
-
-   // Extract first pending item — find first object in array
-   int objStart = StringFind(json, "{");
-   int objEnd   = StringFind(json, "}", objStart);
-   if (objStart < 0 || objEnd < 0) return;
-
-   string item = StringSubstr(json, objStart, objEnd - objStart + 1);
-
-   string fqId   = JsStr(item, "id");
-   string pair   = JsStr(item, "pair");
-   string dir    = JsStr(item, "direction");
-   double lots   = StringToDouble(JsNum(item, "lotSize"));
-   double sl     = StringToDouble(JsNum(item, "sl"));
-   double tp     = StringToDouble(JsNum(item, "tp"));
-   string sigId  = JsStr(item, "signalId");
-   int    conf   = (int)StringToInteger(JsNum(item, "confidence"));
-   string tf     = JsStr(item, "timeframe");
-
-   if (fqId == "" || pair == "") return;
-   if (lots <= 0) lots = InpLotSize;
-
-   Print("SmartFX MANUAL: ", dir, " ", pair,
-         " Lots:", lots, " SL:", sl, " TP:", tp,
-         " | QueueID:", fqId);
-
-   // Mark done immediately to prevent double-execution
-   MarkForceDone(fqId);
-
-   // Resolve symbol
-   string symbol = ResolveSymbol(pair);
-   if (symbol == "")
-   {
-      Print("SmartFX MANUAL: Symbol not found for [", pair, "] — cannot execute");
-      return;
-   }
-
-   // Normalize lot size to symbol constraints
-   lots = NormalizeLots(symbol, lots);
-   if (lots <= 0) { Print("SmartFX MANUAL: Invalid volume after normalization — skipping"); return; }
-
-   // Execute trade
-   bool ok = false;
-   if (dir == "BUY")
-      ok = g_trade.Buy(lots, symbol, 0, sl, tp, "SmartFX-Manual #" + sigId);
-   else if (dir == "SELL")
-      ok = g_trade.Sell(lots, symbol, 0, sl, tp, "SmartFX-Manual #" + sigId);
-
-   if (ok)
-   {
-      g_trades++;
-      ulong ticket = g_trade.ResultOrder();
-      Print("SmartFX MANUAL: Trade opened ✓ — ", dir, " ", symbol,
-            " | Ticket:", ticket, " | Lots:", lots);
-      ReportTrade(ticket, symbol, dir, lots, sl, tp, sigId, conf, tf);
-      g_lastPoll = TimeCurrent();
-      Comment("SmartFX v2.1 | Last trade: MANUAL ", dir, " ", symbol,
-              " | Total trades: ", g_trades);
-   }
-   else
-   {
-      Print("SmartFX MANUAL: Trade FAILED — ", g_trade.ResultRetcodeDescription(),
-            " (", g_trade.ResultRetcode(), ")");
-   }
+   UpdateComment();
 }
 
 //+------------------------------------------------------------------+
-//| Mark a force-queue item as done                                   |
+//| Daily profit target / loss limit check                            |
 //+------------------------------------------------------------------+
-void MarkForceDone(const string &fqId)
+bool CheckDailyTarget()
 {
-   string url = InpApiUrl + "/api/ea/force-queue/" + fqId + "/done";
+   if (g_stopped) return true;
+   if (InpDailyProfitTarget <= 0 && InpDailyLossLimit <= 0) return false;
 
-   string bodyStr = "{}";
-   char   postData[], response[];
-   string respHeaders;
-   StringToCharArray(bodyStr, postData, 0, StringLen(bodyStr));
+   double netPnL   = AccountInfoDouble(ACCOUNT_EQUITY) - g_startBalance;
+   bool hitTarget  = (InpDailyProfitTarget > 0 && netPnL >= InpDailyProfitTarget);
+   bool hitLimit   = (InpDailyLossLimit  > 0 && netPnL <= -InpDailyLossLimit);
+   if (!hitTarget && !hitLimit) return false;
 
-   WebRequest("POST", url, "Content-Type: application/json\r\n",
-              5000, postData, response, respHeaders);
+   string reason = hitTarget ? "PROFIT TARGET HIT" : "LOSS LIMIT HIT";
+   Print("SmartFX: *** ", reason, " *** P&L:$", DoubleToString(netPnL, 2));
+
+   for (int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong t = PositionGetTicket(i);
+      if (PositionSelectByTicket(t) &&
+          (int)PositionGetInteger(POSITION_MAGIC) == InpMagicNumber)
+         g_trade.PositionClose(t);
+   }
+   for (int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      ulong t = OrderGetTicket(i);
+      if (OrderSelect(t) && (int)OrderGetInteger(ORDER_MAGIC) == InpMagicNumber)
+         g_trade.OrderDelete(t);
+   }
+
+   g_stopped = true;
+   Comment("SmartFX v2.3 | *** STOPPED — ", reason, " ***");
+   return true;
 }
 
 //+------------------------------------------------------------------+
-//| Main auto-poll + trade loop                                       |
+//| Auto-signal polling — ONE trade at a time, chain after close      |
 //+------------------------------------------------------------------+
 void PollAndTrade()
 {
+   // ONE TRADE AT A TIME — wait until current position closes
+   if (HasAnyPosition())
+   {
+      double netPnL = AccountInfoDouble(ACCOUNT_EQUITY) - g_startBalance;
+      Comment("SmartFX v2.3 | Trade open — P&L:$", DoubleToString(netPnL, 2),
+              " | Waiting for TP/SL...");
+      return;
+   }
+
+   // Also wait if a pending limit order is already placed
+   if (HasAnyPendingOrder())
+   {
+      Comment("SmartFX v2.3 | Limit order pending — waiting for fill or expiry...");
+      return;
+   }
+
    string url = InpApiUrl + "/api/ea/signal"
               + "?min_confidence=" + IntegerToString(InpMinConfidence)
               + "&last_id="        + g_lastId;
@@ -181,90 +163,80 @@ void PollAndTrade()
    {
       int err = GetLastError();
       if (err == 4060)
-         Print("SmartFX: WebRequest blocked. Go to Tools > Options > Expert Advisors"
-               " and add  ", InpApiUrl, "  to the Allowed URLs list.");
-      else
-         Print("SmartFX: WebRequest error ", err, " — retrying next poll.");
+         Print("SmartFX: WebRequest blocked — add ", InpApiUrl, " to allowed URLs.");
       return;
    }
-
-   if (httpCode != 200)
-   {
-      Print("SmartFX: Server returned HTTP ", httpCode);
-      return;
-   }
+   if (httpCode != 200) return;
 
    string json = CharArrayToString(response, 0, WHOLE_ARRAY, CP_UTF8);
-   StringTrimLeft(json);
-   StringTrimRight(json);
+   StringTrimLeft(json); StringTrimRight(json);
 
-   // No new signal
    if (json == "" || json == "null" || StringFind(json, "\"id\"") < 0)
    {
-      g_lastPoll = TimeCurrent();
-      Comment("SmartFX v2.1 | Last poll: ", TimeToString(g_lastPoll, TIME_MINUTES),
-              " | Trades: ", g_trades, " | Waiting for signal >=", InpMinConfidence, "%");
+      UpdateComment();
       return;
    }
 
-   // Parse fields
-   string sigId   = JsStr(json, "id");
-   string pair    = JsStr(json, "pair");
-   string dir     = JsStr(json, "direction");
-   double entry   = StringToDouble(JsNum(json, "entry"));
-   double sl      = StringToDouble(JsNum(json, "sl"));
-   double tp      = StringToDouble(JsNum(json, "tp"));
-   int    conf    = (int)StringToInteger(JsNum(json, "confidence"));
-   string tf      = JsStr(json, "timeframe");
+   string sigId  = JsStr(json, "id");
+   string pair   = JsStr(json, "pair");
+   string dir    = JsStr(json, "direction");
+   double entry  = StringToDouble(JsNum(json, "entry"));
+   double sl     = StringToDouble(JsNum(json, "sl"));
+   double tp     = StringToDouble(JsNum(json, "tp"));
+   int    conf   = (int)StringToInteger(JsNum(json, "confidence"));
+   string tf     = JsStr(json, "timeframe");
 
-   // Already processed this signal
    if (sigId == g_lastId || sigId == "") return;
+
+   // Skip signal on same pair as last closed — wait for a different one
+   string symbol = ResolveSymbol(pair);
+   if (symbol == g_lastClosedPair && g_lastClosedPair != "")
+   {
+      Print("SmartFX: Skipping ", pair, " — same as last closed pair, waiting for different signal");
+      g_lastId = sigId;   // Advance past this signal
+      return;
+   }
+
+   if (symbol == "")
+   {
+      Print("SmartFX: Symbol not found [", pair, "] — skipping");
+      g_lastId = sigId;
+      return;
+   }
 
    Print("SmartFX AUTO signal #", sigId, ": ", dir, " ", pair,
          " | Entry:", entry, " SL:", sl, " TP:", tp,
          " | Conf:", conf, "% | TF:", tf);
 
-   // Resolve MT5 symbol
-   string symbol = ResolveSymbol(pair);
-   if (symbol == "")
-   {
-      Print("SmartFX: Symbol not found for pair [", pair, "] — skipping");
-      g_lastId = sigId;
-      return;
-   }
-
-   // Spread check
-   long spreadPts = SymbolInfoInteger(symbol, SYMBOL_SPREAD);
-   if (spreadPts > InpMaxSpreadPts)
-   {
-      Print("SmartFX: Spread ", spreadPts, " pts > max ", InpMaxSpreadPts, " — skipping");
-      g_lastId = sigId;
-      return;
-   }
-
-   // Avoid duplicate position on same symbol
-   if (HasPosition(symbol))
-   {
-      Print("SmartFX: Already in position on ", symbol, " — skipping");
-      g_lastId = sigId;
-      return;
-   }
-
-   // Normalize lot size to symbol constraints
    double autoLots = NormalizeLots(symbol, InpLotSize);
-   if (autoLots <= 0) { Print("SmartFX: Invalid volume after normalization — skipping"); g_lastId = sigId; return; }
+   if (autoLots <= 0) { g_lastId = sigId; return; }
 
-   // Execute
    bool ok = false;
-   if (dir == "BUY")
-      ok = g_trade.Buy(autoLots, symbol, 0, sl, tp, "SmartFX #" + sigId);
-   else if (dir == "SELL")
-      ok = g_trade.Sell(autoLots, symbol, 0, sl, tp, "SmartFX #" + sigId);
-   else
+
+   if (InpUseLimitOrders && entry > 0)
    {
-      Print("SmartFX: Unknown direction [", dir, "]");
-      g_lastId = sigId;
-      return;
+      datetime expiry = TimeCurrent() + InpOrderExpireMins * 60;
+      if (dir == "BUY")
+         ok = g_trade.BuyLimit(autoLots, entry, symbol, sl, tp,
+                               ORDER_TIME_SPECIFIED, expiry, "SmartFX #" + sigId);
+      else if (dir == "SELL")
+         ok = g_trade.SellLimit(autoLots, entry, symbol, sl, tp,
+                                ORDER_TIME_SPECIFIED, expiry, "SmartFX #" + sigId);
+
+      if (ok)
+         Print("SmartFX: Limit order placed — ", dir, " ", symbol, " @ ", entry,
+               " | Expires in ", InpOrderExpireMins, "min");
+      else
+         Print("SmartFX: Limit order failed (", g_trade.ResultRetcode(),
+               ") — falling back to market");
+   }
+
+   if (!ok)
+   {
+      if (dir == "BUY")
+         ok = g_trade.Buy(autoLots, symbol, 0, sl, tp, "SmartFX #" + sigId);
+      else if (dir == "SELL")
+         ok = g_trade.Sell(autoLots, symbol, 0, sl, tp, "SmartFX #" + sigId);
    }
 
    g_lastId = sigId;
@@ -273,24 +245,125 @@ void PollAndTrade()
    {
       g_trades++;
       ulong ticket = g_trade.ResultOrder();
-      Print("SmartFX AUTO: Trade opened ✓ — ", dir, " ", symbol,
-            " | Ticket:", ticket);
-      ReportTrade(ticket, symbol, dir, InpLotSize, sl, tp, sigId, conf, tf);
+      Print("SmartFX AUTO: Order placed ✓ — ", dir, " ", symbol,
+            " | Ticket:", ticket, " | Total trades:", g_trades);
+      ReportTrade(ticket, symbol, dir, autoLots, sl, tp, sigId, conf, tf);
    }
    else
-   {
-      Print("SmartFX AUTO: Trade FAILED — ", g_trade.ResultRetcodeDescription(),
+      Print("SmartFX AUTO: Order FAILED — ", g_trade.ResultRetcodeDescription(),
             " (", g_trade.ResultRetcode(), ")");
-   }
 
-   g_lastPoll = TimeCurrent();
-   Comment("SmartFX v2.1 | Last poll: ", TimeToString(g_lastPoll, TIME_MINUTES),
-           " | Trades: ", g_trades);
+   UpdateComment();
 }
 
 //+------------------------------------------------------------------+
-//| Report a trade open/close event to SmartFX API                   |
+//| Manual execute from dashboard (always market order)               |
 //+------------------------------------------------------------------+
+void PollForceQueue()
+{
+   string url = InpApiUrl + "/api/ea/force-queue";
+   char   postData[], response[];
+   string respHeaders;
+   ArrayResize(postData, 0);
+
+   int httpCode = WebRequest("GET", url, "Content-Type: application/json\r\n",
+                             8000, postData, response, respHeaders);
+   if (httpCode != 200) return;
+
+   string json = CharArrayToString(response, 0, WHOLE_ARRAY, CP_UTF8);
+   StringTrimLeft(json); StringTrimRight(json);
+   if (json == "" || json == "[]" || StringFind(json, "\"id\"") < 0) return;
+
+   int objStart = StringFind(json, "{");
+   int objEnd   = StringFind(json, "}", objStart);
+   if (objStart < 0 || objEnd < 0) return;
+
+   string item  = StringSubstr(json, objStart, objEnd - objStart + 1);
+   string fqId  = JsStr(item, "id");
+   string pair  = JsStr(item, "pair");
+   string dir   = JsStr(item, "direction");
+   double lots  = StringToDouble(JsNum(item, "lotSize"));
+   double sl    = StringToDouble(JsNum(item, "sl"));
+   double tp    = StringToDouble(JsNum(item, "tp"));
+   string sigId = JsStr(item, "signalId");
+   int    conf  = (int)StringToInteger(JsNum(item, "confidence"));
+   string tf    = JsStr(item, "timeframe");
+
+   if (fqId == "" || pair == "") return;
+   if (lots <= 0) lots = InpLotSize;
+
+   MarkForceDone(fqId);
+
+   string symbol = ResolveSymbol(pair);
+   if (symbol == "") { Print("SmartFX MANUAL: Symbol not found [", pair, "]"); return; }
+
+   lots = NormalizeLots(symbol, lots);
+   if (lots <= 0) return;
+
+   bool ok = false;
+   if (dir == "BUY")  ok = g_trade.Buy (lots, symbol, 0, sl, tp, "SmartFX-Manual #" + sigId);
+   if (dir == "SELL") ok = g_trade.Sell(lots, symbol, 0, sl, tp, "SmartFX-Manual #" + sigId);
+
+   if (ok)
+   {
+      g_trades++;
+      ulong ticket = g_trade.ResultOrder();
+      Print("SmartFX MANUAL: Trade opened ✓ — ", dir, " ", symbol,
+            " | Ticket:", ticket, " | Lots:", lots);
+      ReportTrade(ticket, symbol, dir, lots, sl, tp, sigId, conf, tf);
+   }
+   else
+      Print("SmartFX MANUAL: Trade FAILED — ", g_trade.ResultRetcodeDescription(),
+            " (", g_trade.ResultRetcode(), ")");
+
+   UpdateComment();
+}
+
+void MarkForceDone(const string &fqId)
+{
+   string url = InpApiUrl + "/api/ea/force-queue/" + fqId + "/done";
+   string bodyStr = "{}";
+   char   postData[], response[];
+   string respHeaders;
+   StringToCharArray(bodyStr, postData, 0, StringLen(bodyStr));
+   WebRequest("POST", url, "Content-Type: application/json\r\n",
+              5000, postData, response, respHeaders);
+}
+
+//+------------------------------------------------------------------+
+//| Balance reporting                                                 |
+//+------------------------------------------------------------------+
+void ReportBalance()
+{
+   if (TimeCurrent() - g_lastBalance < 15) return;
+   g_lastBalance = TimeCurrent();
+
+   long   login  = AccountInfoInteger(ACCOUNT_LOGIN);
+   double bal    = AccountInfoDouble(ACCOUNT_BALANCE);
+   double eq     = AccountInfoDouble(ACCOUNT_EQUITY);
+   string cur    = AccountInfoString(ACCOUNT_CURRENCY);
+   string srv    = AccountInfoString(ACCOUNT_SERVER);
+   bool   isDemo = (AccountInfoInteger(ACCOUNT_TRADE_MODE) == ACCOUNT_TRADE_MODE_DEMO);
+
+   string json = StringFormat(
+      "{\"login\":\"%d\",\"balance\":%.2f,\"equity\":%.2f,"
+      "\"currency\":\"%s\",\"server\":\"%s\",\"accountType\":\"%s\"}",
+      login, bal, eq, cur, srv, isDemo ? "demo" : "real"
+   );
+
+   string urls[2];
+   urls[0] = InpApiUrl + "/api/ea/balance";
+   urls[1] = InpApiUrl + "/api/mt5/balance-report";
+   for (int i = 0; i < 2; i++)
+   {
+      char postData[], response[]; string respHeaders;
+      StringToCharArray(json, postData, 0, StringLen(json));
+      WebRequest("POST", urls[i], "Content-Type: application/json\r\n",
+                 5000, postData, response, respHeaders);
+   }
+   Print("SmartFX: Balance — ", cur, " ", DoubleToString(bal, 2));
+}
+
 void ReportTrade(ulong ticket, string symbol, string direction,
                  double lots, double sl, double tp,
                  string sigId, int confidence, string timeframe)
@@ -307,60 +380,105 @@ void ReportTrade(ulong ticket, string symbol, string direction,
       ticket, login, symbol, direction, lots, openPrice,
       sl, tp, sigId, confidence, timeframe
    );
-
    string url = InpApiUrl + "/api/ea/trade";
-   char   postData[], response[];
-   string respHeaders;
+   char postData[], response[]; string respHeaders;
    StringToCharArray(json, postData, 0, StringLen(json));
    WebRequest("POST", url, "Content-Type: application/json\r\n",
               5000, postData, response, respHeaders);
-   Print("SmartFX: Trade reported to dashboard — #", ticket);
 }
 
-//+------------------------------------------------------------------+
-//| Report MT5 account balance to SmartFX API                        |
-//+------------------------------------------------------------------+
-void ReportBalance()
+void UpdateComment()
 {
-   // Report every 15 seconds for real-time balance display
-   if (TimeCurrent() - g_lastBalance < 15) return;
-   g_lastBalance = TimeCurrent();
-
-   long   login       = AccountInfoInteger(ACCOUNT_LOGIN);
-   double balance     = AccountInfoDouble(ACCOUNT_BALANCE);
-   double equity      = AccountInfoDouble(ACCOUNT_EQUITY);
-   string currency    = AccountInfoString(ACCOUNT_CURRENCY);
-   string server      = AccountInfoString(ACCOUNT_SERVER);
-   bool   isDemo      = (AccountInfoInteger(ACCOUNT_TRADE_MODE) == ACCOUNT_TRADE_MODE_DEMO);
-   string accountType = isDemo ? "demo" : "real";
-
-   string json = StringFormat(
-      "{\"login\":\"%d\",\"balance\":%.2f,\"equity\":%.2f,"
-      "\"currency\":\"%s\",\"server\":\"%s\",\"accountType\":\"%s\"}",
-      login, balance, equity, currency, server, accountType
-   );
-
-   // Report to both endpoints
-   string urls[2];
-   urls[0] = InpApiUrl + "/api/ea/balance";
-   urls[1] = InpApiUrl + "/api/mt5/balance-report";
-
-   for (int i = 0; i < 2; i++)
+   double netPnL = AccountInfoDouble(ACCOUNT_EQUITY) - g_startBalance;
+   int    open   = 0;
+   for (int i = 0; i < PositionsTotal(); i++)
    {
-      char   postData[], response[];
-      string respHeaders;
-      StringToCharArray(json, postData, 0, StringLen(json));
-      WebRequest("POST", urls[i], "Content-Type: application/json\r\n",
-                 5000, postData, response, respHeaders);
+      ulong t = PositionGetTicket(i);
+      if (PositionSelectByTicket(t) &&
+          (int)PositionGetInteger(POSITION_MAGIC) == InpMagicNumber) open++;
    }
 
-   Print("SmartFX: Balance reported — ", currency, " ", DoubleToString(balance, 2),
-         " (", accountType, " #", login, ")");
+   string status = (open > 0) ? "TRADE OPEN — waiting for TP/SL"
+                               : "Waiting for next signal";
+   Comment("SmartFX v2.3 | ", status,
+           " | Trades:", g_trades,
+           " | P&L:$", DoubleToString(netPnL, 2));
 }
 
 //+------------------------------------------------------------------+
-//| JSON helpers — extract string or numeric field from flat JSON     |
+//| Helpers                                                           |
 //+------------------------------------------------------------------+
+bool HasAnyPosition()
+{
+   for (int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong t = PositionGetTicket(i);
+      if (PositionSelectByTicket(t) &&
+          (int)PositionGetInteger(POSITION_MAGIC) == InpMagicNumber)
+         return true;
+   }
+   return false;
+}
+
+bool HasAnyPendingOrder()
+{
+   for (int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      ulong t = OrderGetTicket(i);
+      if (OrderSelect(t) &&
+          (int)OrderGetInteger(ORDER_MAGIC) == InpMagicNumber)
+         return true;
+   }
+   return false;
+}
+
+double NormalizeLots(const string &symbol, double lots)
+{
+   double minVol = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
+   double maxVol = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MAX);
+   double step   = SymbolInfoDouble(symbol, SYMBOL_VOLUME_STEP);
+   if (step <= 0) step = 0.01;
+   lots = MathRound(lots / step) * step;
+   if (lots < minVol) lots = minVol;
+   if (lots > maxVol) lots = maxVol;
+   return NormalizeDouble(lots, 2);
+}
+
+string ResolveSymbol(const string &pair)
+{
+   string upper = pair;
+   StringToUpper(upper);
+   if (SymbolSelect(upper, true) && SymbolInfoDouble(upper, SYMBOL_BID) > 0) return upper;
+
+   string sfx[] = {".", "+", "m", "_", "pro"};
+   for (int i = 0; i < ArraySize(sfx); i++)
+   {
+      string s = upper + sfx[i];
+      if (SymbolSelect(s, true) && SymbolInfoDouble(s, SYMBOL_BID) > 0) return s;
+   }
+
+   string synthMap[][2] = {
+      {"R_10",      "Volatility 10 Index"},
+      {"R_25",      "Volatility 25 Index"},
+      {"R_50",      "Volatility 50 Index"},
+      {"R_75",      "Volatility 75 Index"},
+      {"R_100",     "Volatility 100 Index"},
+      {"BOOM500",   "Boom 500 Index"},
+      {"BOOM1000",  "Boom 1000 Index"},
+      {"CRASH500",  "Crash 500 Index"},
+      {"CRASH1000", "Crash 1000 Index"},
+   };
+   for (int i = 0; i < ArraySize(synthMap) / 2; i++)
+   {
+      if (upper == synthMap[i][0])
+      {
+         string s = synthMap[i][1];
+         if (SymbolSelect(s, true) && SymbolInfoDouble(s, SYMBOL_BID) > 0) return s;
+      }
+   }
+   return "";
+}
+
 string JsStr(const string &json, const string &key)
 {
    string search = "\"" + key + "\":\"";
@@ -389,91 +507,4 @@ string JsNum(const string &json, const string &key)
    }
    string v = StringSubstr(json, pos, end - pos);
    return (v == "" || v == "null") ? "0" : v;
-}
-
-//+------------------------------------------------------------------+
-//| Normalize lot size to symbol's volume constraints                 |
-//+------------------------------------------------------------------+
-double NormalizeLots(const string &symbol, double lots)
-{
-   double minVol  = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
-   double maxVol  = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MAX);
-   double step    = SymbolInfoDouble(symbol, SYMBOL_VOLUME_STEP);
-   if (step <= 0) step = 0.01;
-
-   // Round to nearest valid step
-   lots = MathRound(lots / step) * step;
-
-   // Clamp to min/max
-   if (lots < minVol) lots = minVol;
-   if (lots > maxVol) lots = maxVol;
-
-   // Final precision
-   lots = NormalizeDouble(lots, 2);
-
-   Print("SmartFX: Volume normalized → ", lots,
-         " (min:", minVol, " max:", maxVol, " step:", step, ")");
-   return lots;
-}
-
-//+------------------------------------------------------------------+
-//| Try to find the symbol on the broker (handles suffixes)           |
-//+------------------------------------------------------------------+
-string ResolveSymbol(const string &pair)
-{
-   string upper = pair;
-   StringToUpper(upper);
-
-   // Exact match
-   if (SymbolSelect(upper, true) && SymbolInfoDouble(upper, SYMBOL_BID) > 0)
-      return upper;
-
-   // Common Deriv MT5 suffixes
-   string sfx[] = {".", "+", "m", "_", "pro"};
-   for (int i = 0; i < ArraySize(sfx); i++)
-   {
-      string s = upper + sfx[i];
-      if (SymbolSelect(s, true) && SymbolInfoDouble(s, SYMBOL_BID) > 0)
-         return s;
-   }
-
-   // Synthetics without prefix (Volatility 10 Index etc.)
-   string synthMap[][2] = {
-      {"R_10",     "Volatility 10 Index"},
-      {"R_25",     "Volatility 25 Index"},
-      {"R_50",     "Volatility 50 Index"},
-      {"R_75",     "Volatility 75 Index"},
-      {"R_100",    "Volatility 100 Index"},
-      {"BOOM500",  "Boom 500 Index"},
-      {"BOOM1000", "Boom 1000 Index"},
-      {"CRASH500", "Crash 500 Index"},
-      {"CRASH1000","Crash 1000 Index"},
-   };
-   for (int i = 0; i < ArraySize(synthMap) / 2; i++)
-   {
-      if (upper == synthMap[i][0])
-      {
-         string s = synthMap[i][1];
-         if (SymbolSelect(s, true) && SymbolInfoDouble(s, SYMBOL_BID) > 0)
-            return s;
-      }
-   }
-
-   return "";
-}
-
-//+------------------------------------------------------------------+
-//| Check if we already hold a position for this symbol + magic       |
-//+------------------------------------------------------------------+
-bool HasPosition(const string &symbol)
-{
-   for (int i = PositionsTotal() - 1; i >= 0; i--)
-   {
-      ulong ticket = PositionGetTicket(i);
-      if (PositionSelectByTicket(ticket))
-         if (PositionGetString(POSITION_SYMBOL)  == symbol &&
-             PositionGetInteger(POSITION_MAGIC)   == InpMagicNumber)
-            return true;
-   }
-   return false;
 }
