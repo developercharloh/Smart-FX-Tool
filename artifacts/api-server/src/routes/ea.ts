@@ -6,7 +6,7 @@
 
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { signalsTable, eaBalancesTable } from "@workspace/db";
+import { signalsTable, eaBalancesTable, forceQueueTable } from "@workspace/db";
 import { eq, and, gte, gt, desc } from "drizzle-orm";
 
 const router = Router();
@@ -184,22 +184,7 @@ router.get("/trades", (_req, res) => {
   return res.json(_trades);
 });
 
-// ── Force-execute queue (manual "Execute Trade" from dashboard) ───────────────
-interface ForceQueueItem {
-  id:         string;
-  signalId:   string;
-  lotSize:    number;
-  pair:       string;
-  direction:  "BUY" | "SELL";
-  entry:      number;
-  sl:         number;
-  tp:         number;
-  confidence: number;
-  timeframe:  string;
-  createdAt:  number;
-  status:     "PENDING" | "TAKEN";
-}
-export const _forceQueue: ForceQueueItem[] = [];
+// ── Force-execute queue — DB-persisted so dev & prod share the same queue ─────
 
 // POST /api/ea/execute — dashboard pushes a signal for immediate execution
 router.post("/execute", async (req, res) => {
@@ -216,23 +201,22 @@ router.post("/execute", async (req, res) => {
     const s = rows[0];
     if (!s) return res.status(404).json({ error: "Signal not found" });
 
-    const item: ForceQueueItem = {
+    const item = {
       id:         `fq-${Date.now()}`,
       signalId:   String(signalId),
       lotSize:    Math.max(0.01, Number(lotSize) || 0.01),
       pair:       s.pair,
-      direction:  s.signal === "BUY" ? "BUY" : "SELL",
+      direction:  (s.signal === "BUY" ? "BUY" : "SELL") as "BUY" | "SELL",
       entry:      s.entry,
       sl:         s.stopLoss,
       tp:         s.takeProfit,
       confidence: s.confidenceScore,
       timeframe:  s.timeframe,
       createdAt:  Date.now(),
-      status:     "PENDING",
+      status:     "PENDING" as const,
     };
 
-    _forceQueue.unshift(item);
-    if (_forceQueue.length > 50) _forceQueue.splice(50);
+    await db.insert(forceQueueTable).values(item);
 
     return res.json({ ok: true, id: item.id });
   } catch (err: any) {
@@ -241,16 +225,31 @@ router.post("/execute", async (req, res) => {
 });
 
 // GET /api/ea/force-queue — EA polls this for manual trades
-router.get("/force-queue", (_req, res) => {
-  const pending = _forceQueue.filter(i => i.status === "PENDING");
-  return res.json(pending);
+router.get("/force-queue", async (_req, res) => {
+  try {
+    const pending = await db
+      .select()
+      .from(forceQueueTable)
+      .where(eq(forceQueueTable.status, "PENDING"))
+      .orderBy(desc(forceQueueTable.createdAt))
+      .limit(10);
+    return res.json(pending);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 
 // POST /api/ea/force-queue/:id/done — EA marks item as executed
-router.post("/force-queue/:id/done", (req, res) => {
-  const item = _forceQueue.find(i => i.id === req.params.id);
-  if (item) item.status = "TAKEN";
-  return res.json({ ok: true });
+router.post("/force-queue/:id/done", async (req, res) => {
+  try {
+    await db
+      .update(forceQueueTable)
+      .set({ status: "TAKEN" })
+      .where(eq(forceQueueTable.id, req.params.id));
+    return res.json({ ok: true });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 
 // ── GET /api/ea/status ────────────────────────────────────────────────────────
