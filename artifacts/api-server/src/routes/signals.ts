@@ -116,30 +116,6 @@ async function fetchRealCandles(pair: string, timeframe: string, limit = 150): P
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SIMULATION FALLBACK  (synthetics only, or when real data unavailable)
-// ─────────────────────────────────────────────────────────────────────────────
-
-function generateSimulatedCandles(basePrice: number, atrPct: number, count = 150, granSecs = 3600): CandleWithTime[] {
-  const candles: CandleWithTime[] = [];
-  let price = basePrice;
-  const drift = (Math.random() - 0.48) * atrPct * 0.25;
-  const now = Math.floor(Date.now() / 1000);
-
-  for (let i = 0; i < count; i++) {
-    const vol   = atrPct * basePrice * (0.6 + Math.random() * 0.8);
-    const body  = vol * (0.3 + Math.random() * 0.5);
-    const open  = price;
-    const dir   = Math.random() > 0.5 ? 1 : -1;
-    const close = open + dir * body + drift;
-    const high  = Math.max(open, close) + Math.random() * vol * 0.4;
-    const low   = Math.min(open, close) - Math.random() * vol * 0.4;
-    candles.push({ time: now - (count - 1 - i) * granSecs, open, high, low, close });
-    price = close;
-  }
-  return candles;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // TECHNICAL INDICATORS
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -427,9 +403,8 @@ async function getDXYSentiment(pair: string): Promise<"BULLISH_USD" | "BEARISH_U
       return "NEUTRAL";
     }
   } catch { /* fall through */ }
-  const seed = Math.floor(Date.now() / 3_600_000);
-  const pseudo = Math.sin(seed * 9301 + 49297) * 0.5 + 0.5;
-  return pseudo > 0.55 ? "BULLISH_USD" : pseudo < 0.45 ? "BEARISH_USD" : "NEUTRAL";
+  // No real data available — return NEUTRAL rather than guessing
+  return "NEUTRAL";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -448,9 +423,8 @@ async function getHTFBias(pair: string): Promise<"BULLISH" | "BEARISH" | "RANGIN
       return "RANGING";
     }
   } catch { /* fall through */ }
-  const seed = Math.floor(Date.now() / 14_400_000) + pair.charCodeAt(0);
-  const pseudo = Math.sin(seed * 12345.6789) * 0.5 + 0.5;
-  return pseudo > 0.55 ? "BULLISH" : pseudo < 0.45 ? "BEARISH" : "RANGING";
+  // No real D1 data available — return RANGING rather than guessing
+  return "RANGING";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -540,16 +514,31 @@ async function generateAnalysis(pair: string, timeframe: string, basePrice: numb
   const decimals   = isSynthetic ? 2 : isCrypto && basePrice > 100 ? 2 : isCrypto ? 4 : isJpy || isGold || isCommodity ? 2 : 5;
   const atrPct     = isSynthetic ? 0.008 : isCrypto ? 0.012 : isGold ? 0.004 : isCommodity ? 0.006 : isJpy ? 0.003 : 0.0025;
 
-  // ── Fetch real OHLCV candles; fall back to simulation only for synthetics ──
-  let candles: CandleWithTime[];
-  const real = await fetchRealCandles(pair, timeframe, 150);
-  if (real.length >= 30) {
-    candles = real;
-    console.log(`[analysis] ${pair}/${timeframe}: ${candles.length} real candles (last close ${candles[candles.length-1].close})`);
-  } else {
-    candles = generateSimulatedCandles(basePrice, atrPct, 150, granSecs);
-    if (!isSynthetic) console.warn(`[analysis] ${pair}/${timeframe}: no real data, using simulation`);
+  // ── Fetch real OHLCV candles — NO simulation fallback ──────────────────────
+  // If Deriv returns fewer than 30 candles the data is insufficient for analysis.
+  // We return NEUTRAL immediately rather than inventing fake price history.
+  const candles: CandleWithTime[] = await fetchRealCandles(pair, timeframe, 150);
+  if (candles.length < 30) {
+    console.warn(`[analysis] ${pair}/${timeframe}: insufficient real data (${candles.length} candles) — skipping`);
+    return {
+      pair, timeframe, signal: "NEUTRAL" as const,
+      entry: basePrice, stopLoss: 0, takeProfit: 0,
+      confidenceScore: 0, reasons: ["Insufficient real market data — no signal generated"],
+      structureType: "NONE" as const, trend: "BULLISH" as const,
+      hasOrderBlock: false, hasSupportResistance: false,
+      riskRewardRatio: 0, supportZone: { high: 0, low: 0 },
+      resistanceZone: { high: 0, low: 0 }, orderBlockZone: null,
+      session: "", sessionQuality: "AVOID" as const, htfBias: "RANGING" as const,
+      premiumDiscount: "EQUILIBRIUM" as const, hasFVG: false, fvgZone: null,
+      hasLiquiditySweep: false, liquiditySweepType: null, isInOTE: false,
+      oteFibHigh: 0, oteFibLow: 0, hasDivergence: false, divergenceType: null,
+      hasCandlePattern: false, candlePattern: null, atr: 0, rsi: 0, macdHist: 0,
+      dxySentiment: "NEUTRAL" as const, bullScore: 0, bearScore: 0,
+      chartCandles: [], swingHighLevel: 0, swingLowLevel: 0,
+      equilibriumLevel: 0, liquidityLevel: null,
+    };
   }
+  console.log(`[analysis] ${pair}/${timeframe}: ${candles.length} real candles (last close ${candles[candles.length-1].close})`);
 
   const atr     = calcATR(candles, 14);
   const rsi     = calcRSI(candles, 14);
@@ -657,42 +646,73 @@ async function generateAnalysis(pair: string, timeframe: string, basePrice: numb
   }
 
   // ── Determine Signal ────────────────────────────────────────────────────────
+  // Requires BOTH directional dominance (58%) AND minimum raw score (≥8 points).
+  // Low-confluence situations return NEUTRAL — no forced signal.
   const totalScore  = bullScore + bearScore;
   const bullPct     = totalScore > 0 ? bullScore / totalScore : 0.5;
   const threshold   = 0.58;
+  const MIN_WINNER_SCORE = 8; // must have at least 8 confluence points — prevents noise signals
 
   let signal: "BUY" | "SELL" | "NEUTRAL";
   let signalTrend: "BULLISH" | "BEARISH";
 
-  if (bullPct >= threshold) {
+  const rawWinnerBull = bullScore;
+  const rawWinnerBear = bearScore;
+
+  if (bullPct >= threshold && rawWinnerBull >= MIN_WINNER_SCORE) {
     signal = "BUY"; signalTrend = "BULLISH";
-  } else if (bullPct <= 1 - threshold) {
+  } else if (bullPct <= 1 - threshold && rawWinnerBear >= MIN_WINNER_SCORE) {
     signal = "SELL"; signalTrend = "BEARISH";
   } else {
-    // No clear edge → NEUTRAL
     signal = "NEUTRAL"; signalTrend = bullPct >= 0.5 ? "BULLISH" : "BEARISH";
   }
 
-  // ── Confidence Score (30 max possible individual points → scale to 55–97) ──
+  // ── Real Confidence Score ──────────────────────────────────────────────────
+  // Max achievable score across all confluence factors ≈ 28 points.
+  // Confidence scales linearly from 0–95% based on actual winner score.
+  // No artificial floor — a weak signal gets a weak confidence.
   const winnerScore = signal === "BUY" ? bullScore : bearScore;
-  const confidence  = Math.min(97, Math.max(55, Math.round(55 + (winnerScore / 20) * 42)));
+  const MAX_SCORE   = 28;
+  const confidence  = signal === "NEUTRAL"
+    ? 0
+    : Math.min(95, Math.round((winnerScore / MAX_SCORE) * 95));
 
-  // ── ATR-based Stops ─────────────────────────────────────────────────────────
-  const entry     = parseFloat(currentPrice.toFixed(decimals));
-  const slAtr     = atr * (isSynthetic ? 1.5 : 1.2);
-  const tpAtr     = slAtr * (1.8 + Math.random() * 0.6);
-  const stopLoss  = parseFloat(
-    (signal === "BUY" ? entry - slAtr : entry + slAtr).toFixed(decimals)
-  );
-  const takeProfit = parseFloat(
-    (signal === "BUY" ? entry + tpAtr : entry - tpAtr).toFixed(decimals)
-  );
-  const riskRewardRatio = parseFloat((tpAtr / slAtr).toFixed(2));
+  // ── ATR-based Stop Loss + Structure-based Take Profit ───────────────────────
+  // SL: ATR-derived (accounts for volatility of each instrument class).
+  // TP: targets the nearest real swing high (BUY) or swing low (SELL).
+  //     If the swing level gives less than 1.5:1 R:R, fall back to 2.0× ATR.
+  //     NO Math.random() — TP is always deterministic from real price levels.
+  const entry  = parseFloat(currentPrice.toFixed(decimals));
+  const slAtr  = atr * (isSynthetic ? 1.5 : 1.2);
 
-  // ── Support / Resistance Zones ──────────────────────────────────────────────
+  // Support / Resistance Zones from real candle structure
   const recentHigh = Math.max(...candles.slice(-30).map(c => c.high));
   const recentLow  = Math.min(...candles.slice(-30).map(c => c.low));
   const midRange   = (recentHigh + recentLow) / 2;
+
+  let stopLoss: number;
+  let takeProfit: number;
+
+  if (signal === "BUY") {
+    stopLoss   = entry - slAtr;
+    const swingRR = (recentHigh - entry) / slAtr;
+    takeProfit = swingRR >= 1.5
+      ? parseFloat(recentHigh.toFixed(decimals))
+      : parseFloat((entry + slAtr * 2.0).toFixed(decimals));
+  } else if (signal === "SELL") {
+    stopLoss   = entry + slAtr;
+    const swingRR = (entry - recentLow) / slAtr;
+    takeProfit = swingRR >= 1.5
+      ? parseFloat(recentLow.toFixed(decimals))
+      : parseFloat((entry - slAtr * 2.0).toFixed(decimals));
+  } else {
+    stopLoss   = entry - slAtr;
+    takeProfit = entry + slAtr * 2.0;
+  }
+
+  stopLoss = parseFloat(stopLoss.toFixed(decimals));
+  const tpDistance = Math.abs(takeProfit - entry);
+  const riskRewardRatio = parseFloat((tpDistance / slAtr).toFixed(2));
 
   const supportZone = {
     high: parseFloat((recentLow + (midRange - recentLow) * 0.3).toFixed(decimals)),
@@ -994,20 +1014,22 @@ router.post("/scan", async (req, res) => {
   });
 });
 
-// ── Auto-resolve ACTIVE signals by age + confidence ───────────────────────────
+// ── Expire stale ACTIVE signals (no fake win/loss simulation) ─────────────────
+// Signals older than 4 hours that haven't been resolved by the EA are marked
+// EXPIRED. We never simulate HIT_TP / HIT_SL with random numbers — win rate on
+// the dashboard reflects only real EA trade outcomes reported via /api/ea/trade.
 router.post("/resolve-pending", async (_req, res) => {
   const active = await db.select().from(signalsTable).where(eq(signalsTable.status, "ACTIVE"));
   const now = Date.now();
-  let resolved = 0;
+  const EXPIRE_AFTER_HRS = 4;
+  let expired = 0;
   for (const sig of active) {
     const ageHours = (now - new Date(sig.createdAt!).getTime()) / 3_600_000;
-    if (ageHours < 2) continue;
-    const winProb = Math.min(0.78, (sig.confidenceScore / 100) * 0.95 + (sig.riskRewardRatio ?? 2) * 0.02);
-    const status = Math.random() < winProb ? "HIT_TP" : "HIT_SL";
-    await db.update(signalsTable).set({ status }).where(eq(signalsTable.id, sig.id));
-    resolved++;
+    if (ageHours < EXPIRE_AFTER_HRS) continue;
+    await db.update(signalsTable).set({ status: "EXPIRED" }).where(eq(signalsTable.id, sig.id));
+    expired++;
   }
-  res.json({ resolved, checked: active.length });
+  res.json({ expired, checked: active.length });
 });
 
 router.get("/dashboard-summary", async (req, res) => {
