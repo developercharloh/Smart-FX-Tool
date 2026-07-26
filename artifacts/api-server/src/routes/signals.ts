@@ -677,42 +677,92 @@ async function generateAnalysis(pair: string, timeframe: string, basePrice: numb
     ? 0
     : Math.min(95, Math.round((winnerScore / MAX_SCORE) * 95));
 
-  // ── ATR-based Stop Loss + Structure-based Take Profit ───────────────────────
-  // SL: ATR-derived (accounts for volatility of each instrument class).
-  // TP: targets the nearest real swing high (BUY) or swing low (SELL).
-  //     If the swing level gives less than 1.5:1 R:R, fall back to 2.0× ATR.
-  //     NO Math.random() — TP is always deterministic from real price levels.
-  const entry  = parseFloat(currentPrice.toFixed(decimals));
-  const slAtr  = atr * (isSynthetic ? 1.5 : 1.2);
-
-  // Support / Resistance Zones from real candle structure
+  // ── Price Levels from real candle structure ──────────────────────────────────
   const recentHigh = Math.max(...candles.slice(-30).map(c => c.high));
   const recentLow  = Math.min(...candles.slice(-30).map(c => c.low));
   const midRange   = (recentHigh + recentLow) / 2;
+  const slAtr      = atr * (isSynthetic ? 1.5 : 1.2);
 
+  // ── Entry Price — Real Pullback Zone (NOT current price) ─────────────────────
+  // The EA places a LIMIT order at this price and waits for the market to come back.
+  // BUY:  entry must be BELOW current price — EA waits for a pullback dip.
+  //       Priority: 1) Bullish OB high  2) Bullish FVG low  3) 0.3×ATR below current
+  // SELL: entry must be ABOVE current price — EA waits for a retracement rally.
+  //       Priority: 1) Bearish OB low   2) Bearish FVG high  3) 0.3×ATR above current
+  // A hard safety clamp ensures the entry is always on the correct side of market price.
+  let entryRaw: number;
+  let entrySource: string;
+
+  if (signal === "BUY") {
+    if (orderBlock?.type === "BULLISH" && orderBlock.high < currentPrice - atr * 0.05) {
+      entryRaw   = orderBlock.high;            // top of bullish OB — key support
+      entrySource = "Order Block";
+    } else if (fvg?.type === "BULLISH" && fvg.low < currentPrice - atr * 0.05) {
+      entryRaw   = fvg.low;                   // bottom of bullish FVG — fill the gap
+      entrySource = "FVG";
+    } else {
+      entryRaw   = currentPrice - atr * 0.3;  // minor pullback zone below current
+      entrySource = "ATR Pullback";
+    }
+    // Safety clamp: BUY entry must always be strictly below current price
+    if (entryRaw >= currentPrice) entryRaw = currentPrice - atr * 0.2;
+
+  } else if (signal === "SELL") {
+    if (orderBlock?.type === "BEARISH" && orderBlock.low > currentPrice + atr * 0.05) {
+      entryRaw   = orderBlock.low;            // bottom of bearish OB — key resistance
+      entrySource = "Order Block";
+    } else if (fvg?.type === "BEARISH" && fvg.high > currentPrice + atr * 0.05) {
+      entryRaw   = fvg.high;                  // top of bearish FVG — fill the gap
+      entrySource = "FVG";
+    } else {
+      entryRaw   = currentPrice + atr * 0.3;  // minor retracement zone above current
+      entrySource = "ATR Pullback";
+    }
+    // Safety clamp: SELL entry must always be strictly above current price
+    if (entryRaw <= currentPrice) entryRaw = currentPrice + atr * 0.2;
+
+  } else {
+    entryRaw   = currentPrice;
+    entrySource = "Current";
+  }
+
+  const entry = parseFloat(entryRaw.toFixed(decimals));
+
+  // ── Stop Loss + Take Profit from real structure levels ───────────────────────
+  // SL: placed beyond the entry zone (OB/FVG low for BUY, high for SELL) + 1×ATR buffer
+  // TP: targets real swing high (BUY) or swing low (SELL); min 1.5:1 R:R enforced
   let stopLoss: number;
   let takeProfit: number;
 
   if (signal === "BUY") {
-    stopLoss   = entry - slAtr;
-    const swingRR = (recentHigh - entry) / slAtr;
+    // SL below entry — if OB was used, protect below OB low; else ATR-based
+    const slLevel = orderBlock?.type === "BULLISH"
+      ? orderBlock.low - atr * 0.2
+      : entry - slAtr;
+    stopLoss = parseFloat(slLevel.toFixed(decimals));
+    const actualSlDist = entry - stopLoss;
+    const swingRR = actualSlDist > 0 ? (recentHigh - entry) / actualSlDist : 0;
     takeProfit = swingRR >= 1.5
       ? parseFloat(recentHigh.toFixed(decimals))
-      : parseFloat((entry + slAtr * 2.0).toFixed(decimals));
+      : parseFloat((entry + actualSlDist * 2.0).toFixed(decimals));
   } else if (signal === "SELL") {
-    stopLoss   = entry + slAtr;
-    const swingRR = (entry - recentLow) / slAtr;
+    const slLevel = orderBlock?.type === "BEARISH"
+      ? orderBlock.high + atr * 0.2
+      : entry + slAtr;
+    stopLoss = parseFloat(slLevel.toFixed(decimals));
+    const actualSlDist = stopLoss - entry;
+    const swingRR = actualSlDist > 0 ? (entry - recentLow) / actualSlDist : 0;
     takeProfit = swingRR >= 1.5
       ? parseFloat(recentLow.toFixed(decimals))
-      : parseFloat((entry - slAtr * 2.0).toFixed(decimals));
+      : parseFloat((entry - actualSlDist * 2.0).toFixed(decimals));
   } else {
-    stopLoss   = entry - slAtr;
-    takeProfit = entry + slAtr * 2.0;
+    stopLoss   = parseFloat((entry - slAtr).toFixed(decimals));
+    takeProfit = parseFloat((entry + slAtr * 2.0).toFixed(decimals));
   }
 
-  stopLoss = parseFloat(stopLoss.toFixed(decimals));
   const tpDistance = Math.abs(takeProfit - entry);
-  const riskRewardRatio = parseFloat((tpDistance / slAtr).toFixed(2));
+  const slDistance = Math.abs(entry - stopLoss);
+  const riskRewardRatio = parseFloat((slDistance > 0 ? tpDistance / slDistance : 2).toFixed(2));
 
   const supportZone = {
     high: parseFloat((recentLow + (midRange - recentLow) * 0.3).toFixed(decimals)),

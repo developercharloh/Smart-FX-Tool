@@ -1,10 +1,10 @@
 //+------------------------------------------------------------------+
 //|                                               SmartFX_EA.mq5     |
-//|                        SmartFX AI Trading System v2.5            |
+//|                        SmartFX AI Trading System v2.6            |
 //|          Polls smart-fx-tool.replit.app and auto-trades MT5      |
 //+------------------------------------------------------------------+
 #property copyright "SmartFX AI"
-#property version   "2.50"
+#property version   "2.60"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -47,7 +47,7 @@ int OnInit()
    g_stopped      = false;
 
    EventSetTimer(InpPollSeconds);
-   Print("SmartFX EA v2.5 started | Balance:", g_startBalance,
+   Print("SmartFX EA v2.6 started | Balance:", g_startBalance,
          " | API:", InpApiUrl);
    UpdateComment();
    return INIT_SUCCEEDED;
@@ -203,7 +203,7 @@ bool CheckDailyTarget()
    }
 
    g_stopped = true;
-   Comment("SmartFX v2.4 | *** STOPPED -- ", reason, " ***");
+   Comment("SmartFX v2.6 | *** STOPPED -- ", reason, " ***");
    return true;
 }
 
@@ -215,13 +215,13 @@ void PollAndTrade()
    if (HasAnyPosition())
    {
       double netPnL = AccountInfoDouble(ACCOUNT_EQUITY) - g_startBalance;
-      Comment("SmartFX v2.4 | TRADE OPEN -- P&L:$", DoubleToString(netPnL, 2),
+      Comment("SmartFX v2.6 | TRADE OPEN -- P&L:$", DoubleToString(netPnL, 2),
               " | Lots:", EffectiveLotSize(), " | Waiting for TP/SL...");
       return;
    }
    if (HasAnyPendingOrder())
    {
-      Comment("SmartFX v2.4 | Limit order pending -- waiting for fill...");
+      Comment("SmartFX v2.6 | Limit order pending -- waiting for fill...");
       return;
    }
 
@@ -279,39 +279,50 @@ void PollAndTrade()
    double autoLots = NormalizeLots(symbol, EffectiveLotSize());
    if (autoLots <= 0) { g_lastId = sigId; return; }
 
-   bool ok = false;
-   if (InpUseLimitOrders && entry > 0)
+   // ── Entry price validation ────────────────────────────────────────────────
+   // Server sends a pullback entry (not current price). Validate it is still
+   // on the correct side of market before placing. If market has already moved
+   // past the entry level, skip — NEVER fall back to a blind market order.
+   double askPrice = SymbolInfoDouble(symbol, SYMBOL_ASK);
+   double bidPrice = SymbolInfoDouble(symbol, SYMBOL_BID);
+
+   bool entryValid = false;
+   if (dir == "BUY"  && entry > 0 && entry < askPrice) entryValid = true;
+   if (dir == "SELL" && entry > 0 && entry > bidPrice) entryValid = true;
+
+   if (!entryValid)
    {
-      datetime expiry = TimeCurrent() + InpOrderExpireMins * 60;
-      if (dir == "BUY")
-         ok = g_trade.BuyLimit(autoLots, entry, symbol, sl, tp,
-                               ORDER_TIME_SPECIFIED, expiry, "SmartFX #" + sigId);
-      else if (dir == "SELL")
-         ok = g_trade.SellLimit(autoLots, entry, symbol, sl, tp,
-                                ORDER_TIME_SPECIFIED, expiry, "SmartFX #" + sigId);
-      if (ok)
-         Print("SmartFX: Limit order placed -- ", dir, " ", symbol, " @ ", entry,
-               " | Expires ", InpOrderExpireMins, "min");
-      else
-         Print("SmartFX: Limit failed (", g_trade.ResultRetcode(), ") -- market fallback");
-   }
-   if (!ok)
-   {
-      if (dir == "BUY")  ok = g_trade.Buy (autoLots, symbol, 0, sl, tp, "SmartFX #" + sigId);
-      if (dir == "SELL") ok = g_trade.Sell(autoLots, symbol, 0, sl, tp, "SmartFX #" + sigId);
+      Print("SmartFX: Signal #", sigId, " skipped -- entry ", DoubleToString(entry, 5),
+            " is not a valid limit price (Ask=", DoubleToString(askPrice, 5),
+            " Bid=", DoubleToString(bidPrice, 5), ") | No market fallback");
+      g_lastId = sigId;
+      return;
    }
 
+   // ── Place limit order — no market order fallback ──────────────────────────
+   bool ok = false;
+   datetime expiry = TimeCurrent() + InpOrderExpireMins * 60;
+
+   if (dir == "BUY")
+      ok = g_trade.BuyLimit(autoLots, entry, symbol, sl, tp,
+                            ORDER_TIME_SPECIFIED, expiry, "SmartFX #" + sigId);
+   else if (dir == "SELL")
+      ok = g_trade.SellLimit(autoLots, entry, symbol, sl, tp,
+                             ORDER_TIME_SPECIFIED, expiry, "SmartFX #" + sigId);
+
    g_lastId = sigId;
+
    if (ok)
    {
       g_trades++;
-      Print("SmartFX AUTO: Order placed -- ", dir, " ", symbol,
-            " | Ticket:", g_trade.ResultOrder(), " | Total:", g_trades);
+      Print("SmartFX AUTO: Limit order placed -- ", dir, " ", symbol, " @ ", entry,
+            " | SL:", sl, " TP:", tp,
+            " | Expires ", InpOrderExpireMins, "min | Ticket:", g_trade.ResultOrder());
       ReportTrade(g_trade.ResultOrder(), symbol, dir, autoLots, sl, tp, sigId, conf, tf);
    }
    else
-      Print("SmartFX AUTO: Order FAILED -- ", g_trade.ResultRetcodeDescription(),
-            " (", g_trade.ResultRetcode(), ")");
+      Print("SmartFX AUTO: Limit FAILED (", g_trade.ResultRetcode(), " ",
+            g_trade.ResultRetcodeDescription(), ") -- signal skipped, no market fallback");
 
    UpdateComment();
 }
@@ -514,7 +525,7 @@ void UpdateComment()
    if (pt > 0) targets += StringFormat(" | Target:$%.0f", pt);
    if (ll > 0) targets += StringFormat(" | Limit:-$%.0f", ll);
 
-   Comment("SmartFX v2.4 | ", status,
+   Comment("SmartFX v2.6 | ", status,
            " | Trades:", g_trades,
            " | P&L:$", DoubleToString(netPnL, 2),
            " | Lots:", EffectiveLotSize(), targets);
