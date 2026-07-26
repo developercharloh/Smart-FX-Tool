@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "q9PjSrB4168GoOT3zbuMp"
+uri = "file://artifacts/trading-dashboard/public/SmartFX_EA.mq5"
+type = "unspecified"
+title = "SmartFX_EA v2.4"
