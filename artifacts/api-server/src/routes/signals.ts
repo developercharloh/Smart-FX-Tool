@@ -51,6 +51,7 @@ const TF_TO_YF: Record<string, { interval: string; range: string }> = {
   H1:  { interval: "1h",  range: "730d" },
   H4:  { interval: "1h",  range: "730d" }, // resample in caller if needed
   D1:  { interval: "1d",  range: "max"  },
+  W1:  { interval: "1wk", range: "max"  },
 };
 
 // ── Candle cache (5-minute TTL) ───────────────────────────────────────────────
@@ -630,12 +631,64 @@ function detectCandlePattern(candles: Candle[], atr: number): string | null {
   if (dnWick > body * 2.5 && dnWick > upWick * 2) return "Bullish Pin Bar";
   if (upWick > body * 2.5 && upWick > dnWick * 2) return "Bearish Pin Bar";
 
+  // Shooting Star (bearish) / Hammer (bullish) — directional with body colour
+  if (upWick > body * 2.5 && upWick > dnWick * 2 && c.close < c.open) return "Shooting Star";
+  if (dnWick > body * 2.5 && dnWick > upWick * 2 && c.close > c.open) return "Hammer";
+
   // Engulfing
   if (c.close > c.open && p.close < p.open && c.close > p.open && c.open < p.close) return "Bullish Engulfing";
   if (c.close < c.open && p.close > p.open && c.close < p.open && c.open > p.close) return "Bearish Engulfing";
 
-  // Doji
+  // Doji — indecision
   if (body < range * 0.1) return "Doji";
+
+  // Morning Star — 3-bar bullish reversal (bearish → small body → bullish)
+  if (last3.length === 3) {
+    const c0 = last3[0], c1 = last3[1];
+    const b0 = c0.open - c0.close;   // bearish body
+    const b1 = Math.abs(c1.close - c1.open);
+    const b2 = c.close - c.open;     // bullish body
+    if (b0 > atr * 0.3 && b1 < atr * 0.2 && b2 > atr * 0.3 &&
+        c.close > (c0.open + c0.close) / 2)
+      return "Morning Star";
+  }
+
+  // Evening Star — 3-bar bearish reversal (bullish → small body → bearish)
+  if (last3.length === 3) {
+    const c0 = last3[0], c1 = last3[1];
+    const b0 = c0.close - c0.open;   // bullish body
+    const b1 = Math.abs(c1.close - c1.open);
+    const b2 = c.open - c.close;     // bearish body
+    if (b0 > atr * 0.3 && b1 < atr * 0.2 && b2 > atr * 0.3 &&
+        c.close < (c0.open + c0.close) / 2)
+      return "Evening Star";
+  }
+
+  // Three White Soldiers — 3 consecutive bullish candles, each closing higher
+  if (last3.length === 3) {
+    const c0 = last3[0], c1 = last3[1];
+    if (c0.close > c0.open && c1.close > c1.open && c.close > c.open &&
+        c1.open > c0.open && c1.close > c0.close &&
+        c.open  > c1.open && c.close  > c1.close)
+      return "Three White Soldiers";
+  }
+
+  // Three Black Crows — 3 consecutive bearish candles, each closing lower
+  if (last3.length === 3) {
+    const c0 = last3[0], c1 = last3[1];
+    if (c0.close < c0.open && c1.close < c1.open && c.close < c.open &&
+        c1.open < c0.open && c1.close < c0.close &&
+        c.open  < c1.open && c.close  < c1.close)
+      return "Three Black Crows";
+  }
+
+  // Bullish Marubozu — strong momentum candle, no wicks
+  if (c.close > c.open && upWick < atr * 0.08 && dnWick < atr * 0.08 && body > atr * 0.6)
+    return "Bullish Marubozu";
+
+  // Bearish Marubozu
+  if (c.close < c.open && upWick < atr * 0.08 && dnWick < atr * 0.08 && body > atr * 0.6)
+    return "Bearish Marubozu";
 
   return null;
 }
@@ -750,6 +803,93 @@ async function getHTFBias(pair: string): Promise<"BULLISH" | "BEARISH" | "RANGIN
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// W1 BIAS  (real weekly candles — top of the timeframe pyramid)
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function getW1Bias(pair: string): Promise<"BULLISH" | "BEARISH" | "RANGING"> {
+  try {
+    const w1 = await fetchRealCandles(pair, "W1", 30);
+    if (w1.length >= 10) {
+      const old5avg = w1.slice(-10, -5).reduce((s, c) => s + c.close, 0) / 5;
+      const new5avg = w1.slice(-5).reduce((s, c) => s + c.close, 0) / 5;
+      const pct = (new5avg - old5avg) / old5avg;
+      if (pct >  0.003) return "BULLISH";
+      if (pct < -0.003) return "BEARISH";
+      return "RANGING";
+    }
+  } catch { /* fall through */ }
+  return "RANGING";
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PSYCHOLOGICAL LEVEL  (round number confluence)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function detectPsychLevel(price: number, pair: string): { hit: boolean; level: number } {
+  const isJpy  = pair.includes("JPY");
+  const isGold = pair === "XAUUSD";
+  const isBtc  = pair === "BTCUSD";
+  const isEth  = pair === "ETHUSD";
+  const isXrp  = pair === "XRPUSD" || pair === "XAGUSD";
+
+  let step: number;
+  if (isBtc)       step = 1000;
+  else if (isEth)  step = 100;
+  else if (isGold) step = 50;
+  else if (isXrp)  step = 0.05;
+  else if (isJpy)  step = 0.5;
+  else             step = 0.005;  // 50-pip round numbers for 5-decimal pairs
+
+  const nearest   = Math.round(price / step) * step;
+  const distance  = Math.abs(price - nearest);
+  const threshold = step * 0.15;  // within 15% of step = "near"
+  return { hit: distance < threshold, level: parseFloat(nearest.toFixed(8)) };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HIGH-IMPACT NEWS FILTER  (UTC schedule — no external API needed)
+// Blocks signals 30+ min around recurring high-impact windows.
+// Crypto is exempt — it trades through news.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function isNearHighImpactNews(): { blocked: boolean; reason: string } {
+  const now  = new Date();
+  const mins = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const dow  = now.getUTCDay();   // 0=Sun … 6=Sat
+  const dom  = now.getUTCDate();
+
+  // NFP — first Friday of month, 12:30–14:30 UTC (±30 min buffer)
+  if (dow === 5 && dom <= 7 && mins >= 720 && mins <= 870)
+    return { blocked: true, reason: "NFP release window (first Friday)" };
+
+  // FOMC rate decision — Wednesdays, 19:00–20:30 UTC
+  if (dow === 3 && mins >= 1110 && mins <= 1230)
+    return { blocked: true, reason: "FOMC decision window (Wednesday)" };
+
+  // US CPI / PPI — mid-month Tue–Wed, 12:30–14:30 UTC
+  if ((dow === 2 || dow === 3) && dom >= 8 && dom <= 21 && mins >= 720 && mins <= 870)
+    return { blocked: true, reason: "US CPI/PPI release window (mid-month)" };
+
+  // ECB — last Thu of month, 12:45–14:15 UTC
+  if (dow === 4 && dom >= 22 && mins >= 750 && mins <= 855)
+    return { blocked: true, reason: "ECB rate decision window (last Thursday)" };
+
+  // BOE — first Thu of month, 12:00–13:00 UTC
+  if (dow === 4 && dom <= 7 && mins >= 720 && mins <= 780)
+    return { blocked: true, reason: "BOE rate decision window (first Thursday)" };
+
+  // NYSE open volatility spike — 13:30–13:45 UTC, Mon–Fri
+  if (dow >= 1 && dow <= 5 && mins >= 810 && mins <= 825)
+    return { blocked: true, reason: "NYSE open — first 15-min volatility spike" };
+
+  // Friday late session / weekend gap risk — after 20:00 UTC
+  if (dow === 5 && mins >= 1200)
+    return { blocked: true, reason: "Friday late session — weekend gap risk" };
+
+  return { blocked: false, reason: "" };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // LIVE PRICE FETCHING  via Deriv API  (60-second cache)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -763,10 +903,7 @@ const FALLBACK_PRICES: Record<string, number> = {
   EURCHF: 0.9305, EURAUD: 1.6289, GBPAUD: 1.9084, CADJPY: 116.20, AUDCHF: 0.5712,
   XAUUSD: 4054.0, XAGUSD: 58.20,
   BTCUSD: 64027, ETHUSD: 1857, XRPUSD: 1.089, LTCUSD: 45.9, DOGEUSD: 0.0695,
-  R_10: 4851, R_25: 2643, R_50: 98.8, R_75: 47099, R_100: 544.6,
-  "1HZ10V": 9346, "1HZ25V": 788900, "1HZ50V": 259662, "1HZ75V": 7299, "1HZ100V": 705.9,
-  JD10: 93456, JD25: 112589, JD50: 67564, JD75: 8322, JD100: 239.8,
-  BOOM500: 5009, BOOM1000: 14360, CRASH500: 3102, CRASH1000: 5723,
+  // Deriv synthetic indices removed — scanner only trades real markets
 };
 
 let _priceCache: Record<string, number> = { ...FALLBACK_PRICES };
@@ -878,8 +1015,12 @@ async function generateAnalysis(pair: string, timeframe: string, basePrice: numb
   const divergence   = detectRSIDivergence(candles);
   const candlePattern = detectCandlePattern(candles, atr);
   const pdZone       = premiumDiscount(candles);
-  const [htfBias, dxySentiment, cotMap] = await Promise.all([getHTFBias(pair), getDXYSentiment(pair), fetchCOTData()]);
-  const cotData = getCOTForPair(pair, cotMap);
+  const [htfBias, w1Bias, dxySentiment, cotMap] = await Promise.all([
+    getHTFBias(pair), getW1Bias(pair), getDXYSentiment(pair), fetchCOTData(),
+  ]);
+  const cotData    = getCOTForPair(pair, cotMap);
+  const newsFilter = isNearHighImpactNews();
+  const psychLevel = detectPsychLevel(currentPrice, pair);
   // ── New Deep Analysis ─────────────────────────────────────────────────────
   const volumeProfile = calcVolumeProfile(candles, 24);
   const keyLevels     = calcKeyLevels(candles, decimals);
@@ -970,6 +1111,16 @@ async function generateAnalysis(pair: string, timeframe: string, basePrice: numb
     if (cotData.pairBias === "BEARISH") bearScore += 2;
   }
 
+  // W1 (weekly) bias — top of the timeframe pyramid (+2)
+  if (w1Bias === "BULLISH") bullScore += 2;
+  if (w1Bias === "BEARISH") bearScore += 2;
+
+  // Psychological level — round number confluence (+1 to leading side)
+  if (psychLevel.hit) {
+    if (bullScore >= bearScore) bullScore += 1;
+    else bearScore += 1;
+  }
+
   // Volume Sentiment alignment (+1 for moderate, +2 for extreme)
   if (sentiment.volumeBias !== "NEUTRAL") {
     const volBonus = sentiment.strength === "EXTREME" || sentiment.strength === "STRONG" ? 2 : 1;
@@ -988,8 +1139,8 @@ async function generateAnalysis(pair: string, timeframe: string, basePrice: numb
   // Low-confluence situations return NEUTRAL — no forced signal.
   const totalScore  = bullScore + bearScore;
   const bullPct     = totalScore > 0 ? bullScore / totalScore : 0.5;
-  const threshold   = 0.55;
-  const MIN_WINNER_SCORE = 3; // must have at least 3 confluence points — prevents noise signals
+  const threshold   = 0.60;   // 60% directional dominance required
+  const MIN_WINNER_SCORE = 5; // ≥5 confluence points — hard noise floor
 
   let signal: "BUY" | "SELL" | "NEUTRAL";
   let signalTrend: "BULLISH" | "BEARISH";
@@ -1134,11 +1285,30 @@ async function generateAnalysis(pair: string, timeframe: string, basePrice: numb
   else reasons.push(`${session.name} — ${session.quality === "OPTIMAL" ? "high-liquidity kill zone" : "active market session"}`);
   if (cotData && cotData.pairBias !== "NEUTRAL") reasons.push(`COT: Institutional money is ${cotData.pairBias.toLowerCase()} on this pair (CFTC TFF)`);
   if (sentiment.volumeBias !== "NEUTRAL") reasons.push(`Volume sentiment ${sentiment.volumeBias.toLowerCase()} — ${sentiment.longPct}% bull / ${sentiment.shortPct}% bear (${sentiment.strength.toLowerCase()})`);
+  if (w1Bias !== "RANGING") reasons.push(`W1 weekly trend is ${w1Bias.toLowerCase()} — top-down MTF confirmed (W1 → D1 aligned)`);
+  if (psychLevel.hit) reasons.push(`Entry at psychological level ${psychLevel.level} — major round-number confluence`);
 
   if (reasons.length === 0) reasons.push("Multi-indicator confluence analysis completed");
 
-  // Update MAX_SCORE to account for new factors (+4 COT, +2 vol sentiment)
-  const MAX_SCORE_V2 = 34;
+  // ── Hard MTF filter: W1 + D1 must NOT both oppose the signal direction ────────
+  // Counter-trend against ALL higher timeframes = institutional trap. Kill it.
+  if (signal !== "NEUTRAL") {
+    const w1Opp = (signal === "BUY" && w1Bias === "BEARISH") || (signal === "SELL" && w1Bias === "BULLISH");
+    const d1Opp = (signal === "BUY" && htfBias === "BEARISH") || (signal === "SELL" && htfBias === "BULLISH");
+    if (w1Opp && d1Opp) {
+      console.log(`[MTF-filter] ${pair}/${timeframe}: blocked — W1 ${w1Bias} + D1 ${htfBias} vs ${signal}`);
+      signal = "NEUTRAL"; signalTrend = bullPct >= 0.5 ? "BULLISH" : "BEARISH";
+    }
+  }
+
+  // ── News filter: suppress forex during high-impact windows (crypto exempt) ───
+  if (signal !== "NEUTRAL" && newsFilter.blocked && !isCrypto) {
+    console.log(`[news-filter] ${pair}/${timeframe}: blocked — ${newsFilter.reason}`);
+    signal = "NEUTRAL"; signalTrend = bullPct >= 0.5 ? "BULLISH" : "BEARISH";
+  }
+
+  // Update MAX_SCORE to account for all factors (+2 W1, +1 psych, +2 COT, +2 vol)
+  const MAX_SCORE_V2 = 40;
   const winnerScoreV2 = signal === "BUY" ? bullScore : bearScore;
   const confidenceV2  = signal === "NEUTRAL"
     ? 0
