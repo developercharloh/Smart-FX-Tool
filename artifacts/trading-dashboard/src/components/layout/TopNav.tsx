@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 
 const NAV_LINKS = [
   { href: "/",            label: "Dashboard",    emoji: "🏠" },
-  { href: "/analyze",     label: "AI Scanner",   emoji: "🤖" },
+  { href: "/signals",     label: "AI Scanner",   emoji: "🤖" },
   { href: "/news",        label: "News",         emoji: "📰" },
   { href: "/calculator",  label: "Risk Calc",    emoji: "🧮" },
   { href: "/calendar",    label: "Econ Calendar",emoji: "📅" },
