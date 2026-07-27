@@ -12,9 +12,11 @@ import { eq, and, gte, gt, desc } from "drizzle-orm";
 const router = Router();
 
 // ── GET /api/ea/signal ────────────────────────────────────────────────────────
-// Returns the newest ACTIVE signal with confidence >= min_confidence,
-// optionally only those newer than last_id (prevents re-trading same signal).
-// Returns null when nothing new.
+// Returns the best ACTIVE signal with confidence >= min_confidence.
+// Priority: forex/metals first (tradeable on most brokers), crypto as fallback.
+// Within each group, highest confidence wins. last_id skips already-seen signals.
+const CRYPTO_PAIRS = ["BTCUSD","ETHUSD","XRPUSD","LTCUSD","DOGEUSD","BNBUSD","SOLUSD"];
+
 router.get("/signal", async (req, res) => {
   try {
     const minConf = Math.max(1, parseInt(String(req.query.min_confidence ?? "30")) || 30);
@@ -27,14 +29,17 @@ router.get("/signal", async (req, res) => {
     ];
     if (lastId > 0) conditions.push(gt(signalsTable.id, lastId));
 
-    const rows = await db
+    const allRows = await db
       .select()
       .from(signalsTable)
       .where(and(...conditions))
-      .orderBy(desc(signalsTable.id))
-      .limit(1);
+      .orderBy(desc(signalsTable.confidenceScore));
 
-    const signal = rows[0] ?? null;
+    // Prefer forex/metals — they work on all brokers including Deriv demo.
+    // Fall back to crypto only if no forex/metals signal qualifies.
+    const forexMetals = allRows.filter(r => !CRYPTO_PAIRS.includes(r.pair));
+    const signal = (forexMetals[0] ?? allRows[0]) ?? null;
+
     if (!signal) return res.json(null);
 
     // Flat response — easy to parse with MQL5 string operations

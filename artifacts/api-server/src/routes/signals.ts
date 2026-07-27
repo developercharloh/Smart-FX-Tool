@@ -1132,12 +1132,12 @@ async function generateAnalysis(pair: string, timeframe: string, basePrice: numb
   // Off-hours signals are rarer but structurally valid; confidence reflects session quality.
 
   // ── Determine Signal ────────────────────────────────────────────────────────
-  // Requires BOTH directional dominance (58%) AND minimum raw score (≥8 points).
-  // Low-confluence situations return NEUTRAL — no forced signal.
+  // Forex/metals move less than crypto — lower thresholds so valid setups aren't filtered out.
+  // Crypto keeps stricter thresholds because high volatility can produce false confluence.
   const totalScore  = bullScore + bearScore;
   const bullPct     = totalScore > 0 ? bullScore / totalScore : 0.5;
-  const threshold   = 0.58;   // 58% directional dominance required
-  const MIN_WINNER_SCORE = 4; // ≥4 confluence points — quality without over-filtering
+  const threshold        = isCrypto ? 0.58 : 0.55;  // forex/metals: 55% dominance
+  const MIN_WINNER_SCORE = isCrypto ? 4 : 3;        // forex/metals: 3 confluence points
 
   let signal: "BUY" | "SELL" | "NEUTRAL";
   let signalTrend: "BULLISH" | "BEARISH";
