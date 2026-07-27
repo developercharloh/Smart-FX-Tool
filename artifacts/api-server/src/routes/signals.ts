@@ -1139,8 +1139,8 @@ async function generateAnalysis(pair: string, timeframe: string, basePrice: numb
   // Low-confluence situations return NEUTRAL — no forced signal.
   const totalScore  = bullScore + bearScore;
   const bullPct     = totalScore > 0 ? bullScore / totalScore : 0.5;
-  const threshold   = 0.60;   // 60% directional dominance required
-  const MIN_WINNER_SCORE = 5; // ≥5 confluence points — hard noise floor
+  const threshold   = 0.58;   // 58% directional dominance required
+  const MIN_WINNER_SCORE = 4; // ≥4 confluence points — quality without over-filtering
 
   let signal: "BUY" | "SELL" | "NEUTRAL";
   let signalTrend: "BULLISH" | "BEARISH";
@@ -1534,13 +1534,14 @@ function isPairTradeable(pair: string, status: ReturnType<typeof getMarketStatus
 
 // Pairs sourced from Yahoo Finance (free, no key required)
 const SCANNER_DEFAULT_PAIRS = [
-  // Forex majors only (real interbank markets)
+  // Forex majors
   "EURUSD","GBPUSD","USDJPY","AUDUSD","USDCAD","NZDUSD","USDCHF",
-  // Metals (real commodities)
+  // Forex crosses — high-liquidity pairs with strong trending behaviour
+  "GBPJPY","EURJPY","EURGBP",
+  // Metals
   "XAUUSD","XAGUSD",
   // Crypto — 24/7 real markets
   "BTCUSD","ETHUSD","XRPUSD",
-  // NO Deriv volatility indices (R_10, R_25, 1HZ*, BOOM*, CRASH*, JD*) — man-made/simulated markets
 ];
 
 router.get("/market-status", (_req, res) => {
@@ -1683,10 +1684,10 @@ router.delete("/:id", async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function startAutoScanner() {
-  const SCAN_INTERVAL_MS  = 5 * 60 * 1000;   // every 5 minutes
+  const SCAN_INTERVAL_MS  = 2 * 60 * 1000;   // every 2 minutes
   const MIN_CONFIDENCE    = 25;
   const EXPIRE_AFTER_HRS  = 24;
-  const SCAN_TIMEFRAMES   = ["H1", "M15"];
+  const SCAN_TIMEFRAMES   = ["M15", "H1", "H4"];
 
   async function runScan() {
     try {
@@ -1716,8 +1717,8 @@ export function startAutoScanner() {
         SCAN_TIMEFRAMES.map(tf => ({ pair, tf }))
       );
 
-      // Run max 4 analyses concurrently to avoid Deriv WS rate limits (app_id=1)
-      const CONCURRENCY = 4;
+      // Run max 6 analyses concurrently (Yahoo Finance handles this fine)
+      const CONCURRENCY = 6;
       const results: PromiseSettledResult<any>[] = [];
       for (let i = 0; i < tasks.length; i += CONCURRENCY) {
         const batch = tasks.slice(i, i + CONCURRENCY);
@@ -1736,7 +1737,7 @@ export function startAutoScanner() {
         .map(r => r.value)
         .filter(a => a.signal !== "NEUTRAL" && a.confidenceScore >= MIN_CONFIDENCE)
         .sort((a, b) => b.confidenceScore - a.confidenceScore)
-        .slice(0, 10); // cap at 10 per cycle
+        .slice(0, 15); // cap at 15 per cycle
 
       // Dedup: skip pairs that already have an ACTIVE signal in the same direction
       const existingActive = await db.select().from(signalsTable)
