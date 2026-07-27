@@ -1,7 +1,7 @@
 //+------------------------------------------------------------------+
 //|                                               SmartFX_EA.mq5     |
 //|                        SmartFX AI Trading System v2.6            |
-//|          Polls smart-fx-tool.replit.app and auto-trades MT5      |
+//|          Polls smart-fx-tool.site and auto-trades MT5             |
 //+------------------------------------------------------------------+
 #property copyright "SmartFX AI"
 #property version   "2.60"
@@ -10,7 +10,7 @@
 #include <Trade\Trade.mqh>
 
 //--- Static inputs (fallback defaults — overridden by dashboard settings)
-input string InpApiUrl            = "https://smart-fx-tool.vercel.app"; // SmartFX API Base URL
+input string InpApiUrl            = "https://smart-fx-tool.site"; // SmartFX API Base URL
 input double InpLotSize           = 0.01;    // Default Lot Size (fallback)
 input int    InpMagicNumber       = 20260725; // Magic Number
 input int    InpMinConfidence     = 80;      // Min Signal Confidence % (fallback)
