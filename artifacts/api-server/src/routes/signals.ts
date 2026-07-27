@@ -15,7 +15,7 @@ const router = Router();
 // TYPES
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface Candle { open: number; high: number; low: number; close: number }
+interface Candle { open: number; high: number; low: number; close: number; volume?: number }
 interface CandleWithTime extends Candle { time: number }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -84,11 +84,12 @@ async function fetchRealCandles(pair: string, timeframe: string, limit = 150): P
 
     const candles: CandleWithTime[] = timestamps
       .map((t: number, i: number) => ({
-        time:  t,
-        open:  quote.open?.[i],
-        high:  quote.high?.[i],
-        low:   quote.low?.[i],
-        close: quote.close?.[i],
+        time:   t,
+        open:   quote.open?.[i],
+        high:   quote.high?.[i],
+        low:    quote.low?.[i],
+        close:  quote.close?.[i],
+        volume: quote.volume?.[i] ?? 0,
       }))
       .filter(c => c.open != null && c.high != null && c.low != null && c.close != null);
 
@@ -161,6 +162,335 @@ function calcBB(candles: Candle[], period = 20): { upper: number; mid: number; l
   const std = Math.sqrt(variance);
   return { upper: mid + 2 * std, mid, lower: mid - 2 * std };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// VOLUME PROFILE  (real volume from Yahoo Finance candles)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface VolumeProfileBucket {
+  priceLevel: number;
+  volume: number;
+  bullVolume: number;
+  bearVolume: number;
+  isPOC: boolean;   // Point of Control — highest volume level
+  isHVN: boolean;   // High Value Node (top 30% by volume)
+  isLVN: boolean;   // Low Value Node (bottom 30%)
+}
+
+function calcVolumeProfile(candles: CandleWithTime[], buckets = 24): VolumeProfileBucket[] {
+  const withVol = candles.filter(c => (c.volume ?? 0) > 0);
+  if (withVol.length < 10) return [];
+
+  const priceMin = Math.min(...candles.map(c => c.low));
+  const priceMax = Math.max(...candles.map(c => c.high));
+  if (priceMax === priceMin) return [];
+  const bucketSize = (priceMax - priceMin) / buckets;
+
+  const profile: { vol: number; bullVol: number; bearVol: number }[] =
+    Array.from({ length: buckets }, () => ({ vol: 0, bullVol: 0, bearVol: 0 }));
+
+  for (const c of candles) {
+    const vol = c.volume ?? 0;
+    if (vol <= 0) continue;
+    const isBull = c.close >= c.open;
+    const range  = c.high - c.low || bucketSize;
+    for (let b = 0; b < buckets; b++) {
+      const bLow  = priceMin + b * bucketSize;
+      const bHigh = bLow + bucketSize;
+      const overlap = Math.max(0, Math.min(c.high, bHigh) - Math.max(c.low, bLow));
+      if (overlap > 0) {
+        const frac = overlap / range;
+        profile[b].vol += vol * frac;
+        if (isBull) profile[b].bullVol += vol * frac;
+        else        profile[b].bearVol += vol * frac;
+      }
+    }
+  }
+
+  const maxVol = Math.max(...profile.map(p => p.vol));
+  const pocIdx = profile.findIndex(p => p.vol === maxVol);
+  const sortedVols = [...profile.map(p => p.vol)].sort((a, b) => a - b);
+  const hvnThreshold = sortedVols[Math.floor(buckets * 0.7)];
+  const lvnThreshold = sortedVols[Math.floor(buckets * 0.3)];
+
+  return profile.map((p, i) => ({
+    priceLevel: priceMin + (i + 0.5) * bucketSize,
+    volume:     Math.round(p.vol),
+    bullVolume: Math.round(p.bullVol),
+    bearVolume: Math.round(p.bearVol),
+    isPOC: i === pocIdx,
+    isHVN: p.vol >= hvnThreshold && p.vol > 0,
+    isLVN: p.vol <= lvnThreshold && p.vol > 0,
+  }));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// KEY LEVELS  (swing-based S/R with cluster strength)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface KeyLevel {
+  price: number;
+  type: "RESISTANCE" | "SUPPORT" | "PIVOT";
+  strength: number;   // 1–5
+  isRoundNumber: boolean;
+  label: string;
+}
+
+function _isRoundNumber(price: number, decimals: number): boolean {
+  if (decimals <= 2) return price % 50 === 0 || price % 100 === 0;
+  const frac = price.toFixed(5).split(".")[1] ?? "";
+  return frac.endsWith("000") || frac.endsWith("500") || frac.endsWith("00");
+}
+
+function calcKeyLevels(candles: CandleWithTime[], decimals: number): KeyLevel[] {
+  if (candles.length < 20) return [];
+  const atr = calcATR(candles, 14);
+  const clusterR = atr * 0.5;
+  const pivot = 5;
+  const rawHighs: number[] = [];
+  const rawLows:  number[] = [];
+
+  for (let i = pivot; i < candles.length - pivot; i++) {
+    const slice = candles.slice(i - pivot, i + pivot + 1);
+    if (candles[i].high === Math.max(...slice.map(c => c.high))) rawHighs.push(candles[i].high);
+    if (candles[i].low  === Math.min(...slice.map(c => c.low)))  rawLows.push(candles[i].low);
+  }
+
+  function cluster(prices: number[]): { price: number; count: number }[] {
+    if (!prices.length) return [];
+    const sorted = [...prices].sort((a, b) => a - b);
+    const groups: { prices: number[]; count: number }[] = [];
+    for (const p of sorted) {
+      const g = groups.find(g => Math.abs(g.prices[0] - p) <= clusterR);
+      if (g) { g.prices.push(p); g.count++; }
+      else groups.push({ prices: [p], count: 1 });
+    }
+    return groups.map(g => ({ price: g.prices.reduce((a, b) => a + b, 0) / g.prices.length, count: g.count }));
+  }
+
+  const currentPrice = candles.at(-1)!.close;
+  const levels: KeyLevel[] = [];
+
+  for (const c of cluster(rawHighs)) {
+    const price = parseFloat(c.price.toFixed(decimals));
+    const isRound = _isRoundNumber(price, decimals);
+    levels.push({ price, type: price > currentPrice ? "RESISTANCE" : "PIVOT", strength: Math.min(5, c.count), isRoundNumber: isRound, label: `${price > currentPrice ? "Resistance" : "Pivot"} ×${c.count}${isRound ? " 🔑" : ""}` });
+  }
+  for (const c of cluster(rawLows)) {
+    const price = parseFloat(c.price.toFixed(decimals));
+    const isRound = _isRoundNumber(price, decimals);
+    levels.push({ price, type: price < currentPrice ? "SUPPORT" : "PIVOT", strength: Math.min(5, c.count), isRoundNumber: isRound, label: `${price < currentPrice ? "Support" : "Pivot"} ×${c.count}${isRound ? " 🔑" : ""}` });
+  }
+
+  return levels
+    .sort((a, b) => Math.abs(a.price - currentPrice) - Math.abs(b.price - currentPrice))
+    .slice(0, 12);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LIQUIDITY MAP  (equal highs/lows + unswept liquidity pools)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface LiquidityZone {
+  price: number;
+  type: "BSL" | "SSL" | "EQH" | "EQL";
+  label: string;
+  strength: number;  // 1–5
+  swept: boolean;
+}
+
+function calcLiquidityMap(candles: CandleWithTime[], decimals: number): LiquidityZone[] {
+  if (candles.length < 30) return [];
+  const atr = calcATR(candles, 14);
+  const eqThresh = atr * 0.15;
+  const currentPrice = candles.at(-1)!.close;
+  const window = candles.slice(-80);
+  const pivot = 4;
+
+  const swingHighs: { price: number }[] = [];
+  const swingLows:  { price: number }[] = [];
+  for (let i = pivot; i < window.length - pivot; i++) {
+    const slice = window.slice(i - pivot, i + pivot + 1);
+    if (window[i].high === Math.max(...slice.map(c => c.high))) swingHighs.push({ price: window[i].high });
+    if (window[i].low  === Math.min(...slice.map(c => c.low)))  swingLows.push({ price: window[i].low  });
+  }
+
+  const zones: LiquidityZone[] = [];
+
+  // Equal Highs — stop clusters above
+  for (let i = 0; i < swingHighs.length; i++) {
+    for (let j = i + 1; j < swingHighs.length; j++) {
+      if (Math.abs(swingHighs[i].price - swingHighs[j].price) <= eqThresh) {
+        const price = parseFloat(((swingHighs[i].price + swingHighs[j].price) / 2).toFixed(decimals));
+        zones.push({ price, type: "EQH", label: "Equal Highs — Buyside Liquidity", strength: 4, swept: currentPrice > price });
+        break;
+      }
+    }
+  }
+  // Equal Lows — stop clusters below
+  for (let i = 0; i < swingLows.length; i++) {
+    for (let j = i + 1; j < swingLows.length; j++) {
+      if (Math.abs(swingLows[i].price - swingLows[j].price) <= eqThresh) {
+        const price = parseFloat(((swingLows[i].price + swingLows[j].price) / 2).toFixed(decimals));
+        zones.push({ price, type: "EQL", label: "Equal Lows — Sellside Liquidity", strength: 4, swept: currentPrice < price });
+        break;
+      }
+    }
+  }
+  // Major swing highs (BSL pools)
+  for (const sh of swingHighs.slice(-6)) {
+    const price = parseFloat(sh.price.toFixed(decimals));
+    if (!zones.find(z => Math.abs(z.price - price) < eqThresh))
+      zones.push({ price, type: "BSL", label: "Swing High — Buyside Stops", strength: 2, swept: currentPrice > price });
+  }
+  // Major swing lows (SSL pools)
+  for (const sl of swingLows.slice(-6)) {
+    const price = parseFloat(sl.price.toFixed(decimals));
+    if (!zones.find(z => Math.abs(z.price - price) < eqThresh))
+      zones.push({ price, type: "SSL", label: "Swing Low — Sellside Stops", strength: 2, swept: currentPrice < price });
+  }
+
+  return zones
+    .filter((z, i) => !zones.slice(0, i).some(o => Math.abs(o.price - z.price) < eqThresh * 0.5))
+    .sort((a, b) => Math.abs(a.price - currentPrice) - Math.abs(b.price - currentPrice))
+    .slice(0, 14);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RETAIL SENTIMENT  (volume-weighted directional bias from real candles)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface RetailSentiment {
+  longPct: number;
+  shortPct: number;
+  volumeBias: "BULLISH" | "BEARISH" | "NEUTRAL";
+  strength: "EXTREME" | "STRONG" | "MODERATE" | "WEAK";
+  sessionVolumeTrend: "INCREASING" | "DECREASING" | "FLAT";
+  recentDelta: number;  // last-10-bar vol imbalance −100…+100
+}
+
+function calcRetailSentiment(candles: CandleWithTime[]): RetailSentiment {
+  if (candles.length < 20) return { longPct: 50, shortPct: 50, volumeBias: "NEUTRAL", strength: "WEAK", sessionVolumeTrend: "FLAT", recentDelta: 0 };
+
+  const recent = candles.slice(-50);
+  let bullVol = 0, bearVol = 0;
+  for (const c of recent) {
+    const vol = c.volume ?? 1;
+    if (c.close >= c.open) bullVol += vol;
+    else bearVol += vol;
+  }
+  const total   = bullVol + bearVol || 1;
+  const longPct = Math.round((bullVol / total) * 100);
+  const imbal   = Math.abs(longPct - 50);
+
+  const strength: RetailSentiment["strength"] = imbal >= 20 ? "EXTREME" : imbal >= 12 ? "STRONG" : imbal >= 6 ? "MODERATE" : "WEAK";
+  const volumeBias: RetailSentiment["volumeBias"] = longPct > 55 ? "BULLISH" : longPct < 45 ? "BEARISH" : "NEUTRAL";
+
+  const vRecent = recent.slice(-10).reduce((s, c) => s + (c.volume ?? 1), 0);
+  const vPrev   = recent.slice(-20, -10).reduce((s, c) => s + (c.volume ?? 1), 0);
+  const sessionVolumeTrend: RetailSentiment["sessionVolumeTrend"] = vRecent > vPrev * 1.2 ? "INCREASING" : vRecent < vPrev * 0.8 ? "DECREASING" : "FLAT";
+
+  let rBull = 0, rBear = 0;
+  for (const c of candles.slice(-10)) {
+    const v = c.volume ?? 1;
+    if (c.close >= c.open) rBull += v; else rBear += v;
+  }
+  const rTotal = rBull + rBear || 1;
+  const recentDelta = Math.round(((rBull - rBear) / rTotal) * 100);
+
+  return { longPct, shortPct: 100 - longPct, volumeBias, strength, sessionVolumeTrend, recentDelta };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COT DATA  (CFTC Traders in Financial Futures — free, no API key)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface COTCurrencyData {
+  currency: string;
+  netPosition: number;
+  longPct: number;
+  bias: "BULLISH" | "BEARISH" | "NEUTRAL";
+  reportDate: string;
+}
+
+export interface COTData {
+  currencies: COTCurrencyData[];
+  pairBias: "BULLISH" | "BEARISH" | "NEUTRAL";
+  reportDate: string;
+}
+
+const COT_CODES: Record<string, string> = {
+  EUR: "099741", GBP: "096742", JPY: "097741",
+  CHF: "092741", CAD: "090741", AUD: "232741", NZD: "112741",
+};
+
+let _cotCache: { data: Map<string, COTCurrencyData>; fetchedAt: number } | null = null;
+const COT_TTL = 12 * 60 * 60 * 1000; // 12 hours
+
+async function fetchCOTData(): Promise<Map<string, COTCurrencyData>> {
+  if (_cotCache && Date.now() - _cotCache.fetchedAt < COT_TTL) return _cotCache.data;
+  try {
+    // CFTC Socrata public JSON API — no API key, no zip extraction needed
+    const codeList = Object.values(COT_CODES).map(c => `'${c}'`).join(",");
+    const url = `https://publicreporting.cftc.gov/resource/gpe5-46if.json?$limit=100&$order=as_of_date_in_form_yymmdd+DESC&$where=cftc_contract_market_code+in(${codeList})`;
+    const res = await fetch(url, {
+      headers: { "Accept": "application/json", "User-Agent": "Mozilla/5.0" },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const rows: any[] = await res.json();
+    if (!Array.isArray(rows) || rows.length === 0) throw new Error("empty COT response");
+
+    const result = new Map<string, COTCurrencyData>();
+    for (const row of rows) {
+      const code     = row.cftc_contract_market_code;
+      const currency = Object.entries(COT_CODES).find(([, c]) => c === code)?.[0];
+      if (!currency || result.has(currency)) continue; // keep most-recent row per currency
+      const longs  = parseFloat(row.lev_money_positions_long_all  ?? "0");
+      const shorts = parseFloat(row.lev_money_positions_short_all ?? "0");
+      const net    = longs - shorts;
+      const ttl    = longs + shorts || 1;
+      result.set(currency, {
+        currency,
+        netPosition: Math.round(net),
+        longPct: Math.round((longs / ttl) * 100),
+        bias: net > 5000 ? "BULLISH" : net < -5000 ? "BEARISH" : "NEUTRAL",
+        reportDate: row.report_date_as_yyyy_mm_dd ?? "",
+      });
+    }
+    _cotCache = { data: result, fetchedAt: Date.now() };
+    console.log(`[COT] Fetched ${result.size} currency COT positions`);
+    return result;
+  } catch (e) {
+    console.warn(`[COT] Fetch failed: ${(e as Error).message}`);
+    return _cotCache?.data ?? new Map();
+  }
+}
+
+function getCOTForPair(pair: string, cotMap: Map<string, COTCurrencyData>): COTData | null {
+  if (!cotMap.size) return null;
+  const CURR = ["EUR","GBP","USD","JPY","CHF","CAD","AUD","NZD"];
+  const base  = CURR.find(c => pair.startsWith(c)) ?? null;
+  const quote = CURR.find(c => pair.endsWith(c))   ?? null;
+  const baseD  = base  ? cotMap.get(base)  : undefined;
+  const quoteD = quote ? cotMap.get(quote) : undefined;
+
+  let pairBias: COTData["pairBias"] = "NEUTRAL";
+  if (baseD && quoteD) {
+    if (baseD.bias === "BULLISH"  && quoteD.bias === "BEARISH")  pairBias = "BULLISH";
+    else if (baseD.bias === "BEARISH"  && quoteD.bias === "BULLISH")  pairBias = "BEARISH";
+    else if (baseD.bias === "BULLISH"  && quoteD.bias === "NEUTRAL")  pairBias = "BULLISH";
+    else if (baseD.bias === "BEARISH"  && quoteD.bias === "NEUTRAL")  pairBias = "BEARISH";
+    else if (baseD.bias === "NEUTRAL"  && quoteD.bias === "BEARISH")  pairBias = "BULLISH";
+    else if (baseD.bias === "NEUTRAL"  && quoteD.bias === "BULLISH")  pairBias = "BEARISH";
+  } else if (baseD && baseD.bias !== "NEUTRAL") pairBias = baseD.bias;
+
+  const reportDate = [...cotMap.values()][0]?.reportDate ?? "";
+  return { currencies: [...cotMap.values()], pairBias, reportDate };
+}
+
+// Kick off COT fetch on startup (non-blocking)
+fetchCOTData().catch(() => {});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SMART MONEY CONCEPTS DETECTION
@@ -518,6 +848,9 @@ async function generateAnalysis(pair: string, timeframe: string, basePrice: numb
       dxySentiment: "NEUTRAL" as const, bullScore: 0, bearScore: 0,
       chartCandles: [], swingHighLevel: 0, swingLowLevel: 0,
       equilibriumLevel: 0, liquidityLevel: null,
+      volumeProfile: [], keyLevels: [], liquidityMap: [],
+      sentiment: { longPct: 50, shortPct: 50, volumeBias: "NEUTRAL" as const, strength: "WEAK" as const, sessionVolumeTrend: "FLAT" as const, recentDelta: 0 },
+      cotData: null,
     };
   }
   console.log(`[analysis] ${pair}/${timeframe}: ${candles.length} real candles (last close ${candles[candles.length-1].close})`);
@@ -541,7 +874,13 @@ async function generateAnalysis(pair: string, timeframe: string, basePrice: numb
   const divergence   = detectRSIDivergence(candles);
   const candlePattern = detectCandlePattern(candles, atr);
   const pdZone       = premiumDiscount(candles);
-  const [htfBias, dxySentiment] = await Promise.all([getHTFBias(pair), getDXYSentiment(pair)]);
+  const [htfBias, dxySentiment, cotMap] = await Promise.all([getHTFBias(pair), getDXYSentiment(pair), fetchCOTData()]);
+  const cotData = getCOTForPair(pair, cotMap);
+  // ── New Deep Analysis ─────────────────────────────────────────────────────
+  const volumeProfile = calcVolumeProfile(candles, 24);
+  const keyLevels     = calcKeyLevels(candles, decimals);
+  const liquidityMap  = calcLiquidityMap(candles, decimals);
+  const sentiment     = calcRetailSentiment(candles);
   const session      = getSession();
   const htfTrend     = structureTrend !== "RANGING" ? structureTrend : htfBias;
 
@@ -619,6 +958,19 @@ async function generateAnalysis(pair: string, timeframe: string, basePrice: numb
     if (dxySentiment === "BULLISH_USD" && !usdBaseStrong) bearScore += 1;
     if (dxySentiment === "BEARISH_USD" && usdBaseStrong) bearScore += 1;
     if (dxySentiment === "BEARISH_USD" && !usdBaseStrong) bullScore += 1;
+  }
+
+  // COT institutional positioning (+2 for strong alignment)
+  if (cotData && cotData.pairBias !== "NEUTRAL") {
+    if (cotData.pairBias === "BULLISH") bullScore += 2;
+    if (cotData.pairBias === "BEARISH") bearScore += 2;
+  }
+
+  // Volume Sentiment alignment (+1 for moderate, +2 for extreme)
+  if (sentiment.volumeBias !== "NEUTRAL") {
+    const volBonus = sentiment.strength === "EXTREME" || sentiment.strength === "STRONG" ? 2 : 1;
+    if (sentiment.volumeBias === "BULLISH") bullScore += volBonus;
+    if (sentiment.volumeBias === "BEARISH") bearScore += volBonus;
   }
 
   // Session quality
@@ -776,8 +1128,17 @@ async function generateAnalysis(pair: string, timeframe: string, basePrice: numb
   if (macd.hist < 0 && signal === "SELL") reasons.push("MACD histogram negative — bearish");
   if (session.quality === "AVOID") reasons.push(`Low-liquidity session (${session.name}) — signal weight reduced`);
   else reasons.push(`${session.name} — ${session.quality === "OPTIMAL" ? "high-liquidity kill zone" : "active market session"}`);
+  if (cotData && cotData.pairBias !== "NEUTRAL") reasons.push(`COT: Institutional money is ${cotData.pairBias.toLowerCase()} on this pair (CFTC TFF)`);
+  if (sentiment.volumeBias !== "NEUTRAL") reasons.push(`Volume sentiment ${sentiment.volumeBias.toLowerCase()} — ${sentiment.longPct}% bull / ${sentiment.shortPct}% bear (${sentiment.strength.toLowerCase()})`);
 
   if (reasons.length === 0) reasons.push("Multi-indicator confluence analysis completed");
+
+  // Update MAX_SCORE to account for new factors (+4 COT, +2 vol sentiment)
+  const MAX_SCORE_V2 = 34;
+  const winnerScoreV2 = signal === "BUY" ? bullScore : bearScore;
+  const confidenceV2  = signal === "NEUTRAL"
+    ? 0
+    : Math.min(95, Math.round((winnerScoreV2 / MAX_SCORE_V2) * 95));
 
   // ── Return Full Result ──────────────────────────────────────────────────────
   return {
@@ -787,7 +1148,6 @@ async function generateAnalysis(pair: string, timeframe: string, basePrice: numb
     entry,
     stopLoss,
     takeProfit,
-    confidenceScore: confidence,
     reasons,
     structureType,
     trend: signalTrend,
@@ -823,6 +1183,7 @@ async function generateAnalysis(pair: string, timeframe: string, basePrice: numb
     dxySentiment,
     bullScore,
     bearScore,
+    confidenceScore: confidenceV2,
     // ── Chart Drawing Data (real timestamps from fetched candles) ──
     chartCandles: candles.map(c => ({
       time:  c.time,
@@ -830,6 +1191,7 @@ async function generateAnalysis(pair: string, timeframe: string, basePrice: numb
       high:  parseFloat(c.high.toFixed(decimals)),
       low:   parseFloat(c.low.toFixed(decimals)),
       close: parseFloat(c.close.toFixed(decimals)),
+      volume: c.volume ?? 0,
     })),
     swingHighLevel:  parseFloat(recentHigh.toFixed(decimals)),
     swingLowLevel:   parseFloat(recentLow.toFixed(decimals)),
@@ -842,6 +1204,12 @@ async function generateAnalysis(pair: string, timeframe: string, basePrice: numb
           ).toFixed(decimals)
         )
       : null,
+    // ── Deep Analysis Fields ──
+    volumeProfile: volumeProfile.map(b => ({ ...b, priceLevel: parseFloat(b.priceLevel.toFixed(decimals)) })),
+    keyLevels,
+    liquidityMap,
+    sentiment,
+    cotData,
   };
 }
 

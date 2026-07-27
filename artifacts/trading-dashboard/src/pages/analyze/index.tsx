@@ -8,7 +8,12 @@ import {
   Clock, Layers, Target, BarChart, Waves, ChevronDown, ChevronUp,
   X, RefreshCw, ExternalLink,
   TrendingUp, TrendingDown, Scan, AlertTriangle, Search,
+  Droplets, BookOpen, Users, BarChart3,
 } from "lucide-react";
+import { VolumeProfileChart } from "@/components/shared/VolumeProfileChart";
+import { LiquidityMapPanel } from "@/components/shared/LiquidityMapPanel";
+import { COTPanel } from "@/components/shared/COTPanel";
+import { SentimentPanel } from "@/components/shared/SentimentPanel";
 import { ConfidenceGauge } from "@/components/shared/ConfidenceGauge";
 import { TrendBadge } from "@/components/shared/TrendBadge";
 import { Badge } from "@/components/ui/badge";
@@ -1228,6 +1233,129 @@ export default function Analyze() {
                 )}
               </CardContent>
             </Card>
+          )}
+
+          {/* ── Deep Analysis Panels ─────────────────────────────────────────── */}
+          {deepResult && (
+            <div className="space-y-6">
+
+              {/* Volume Sentiment */}
+              {deepResult.sentiment && (
+                <Card className="bg-card/50 border-border/50">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center gap-2">
+                      <BarChart3 className="w-4 h-4 text-primary" />
+                      <h3 className="text-sm font-bold">Volume Sentiment</h3>
+                      <span className="text-xs text-muted-foreground">— real volume direction from candle data</span>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <SentimentPanel sentiment={deepResult.sentiment} pair={deepResult.pair} />
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Volume Profile */}
+              {deepResult.volumeProfile?.length > 0 && (
+                <Card className="bg-card/50 border-border/50">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center gap-2">
+                      <BarChart2 className="w-4 h-4 text-primary" />
+                      <h3 className="text-sm font-bold">Volume Profile</h3>
+                      <span className="text-xs text-muted-foreground">— volume at price (real traded volume)</span>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <VolumeProfileChart
+                      buckets={deepResult.volumeProfile}
+                      currentPrice={deepResult.entry ?? deepResult.equilibriumLevel}
+                      decimals={deepResult.pair.includes("JPY") || deepResult.pair.startsWith("XAU") || deepResult.pair.startsWith("XAG") ? 2 : deepResult.pair.startsWith("BTC") || deepResult.pair.startsWith("ETH") ? 2 : 5}
+                    />
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Key Levels */}
+              {deepResult.keyLevels?.length > 0 && (
+                <Card className="bg-card/50 border-border/50">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center gap-2">
+                      <Target className="w-4 h-4 text-primary" />
+                      <h3 className="text-sm font-bold">Key Levels</h3>
+                      <span className="text-xs text-muted-foreground">— swing-based S/R with cluster strength</span>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                      {deepResult.keyLevels.map((lvl: any, i: number) => (
+                        <div key={i} className={cn(
+                          "rounded-lg border p-3 space-y-1",
+                          lvl.type === "RESISTANCE" ? "bg-rose-500/5 border-rose-500/20" :
+                          lvl.type === "SUPPORT"    ? "bg-emerald-500/5 border-emerald-500/20" :
+                          "bg-slate-500/5 border-slate-500/20"
+                        )}>
+                          <div className={cn("text-[10px] font-bold uppercase tracking-wider",
+                            lvl.type === "RESISTANCE" ? "text-rose-400" :
+                            lvl.type === "SUPPORT"    ? "text-emerald-400" :
+                            "text-slate-400"
+                          )}>
+                            {lvl.type} {lvl.isRoundNumber && "🔑"}
+                          </div>
+                          <div className="font-mono text-sm font-bold">{lvl.price.toFixed(5)}</div>
+                          <div className="flex gap-0.5">
+                            {[1,2,3,4,5].map(s => (
+                              <div key={s} className={cn("w-1.5 h-1.5 rounded-full",
+                                s <= lvl.strength
+                                  ? lvl.type === "RESISTANCE" ? "bg-rose-400" : lvl.type === "SUPPORT" ? "bg-emerald-400" : "bg-slate-400"
+                                  : "bg-white/10"
+                              )} />
+                            ))}
+                          </div>
+                          <div className="text-[10px] text-muted-foreground/60">tested ×{lvl.strength}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Liquidity Map */}
+              {deepResult.liquidityMap?.length > 0 && (
+                <Card className="bg-card/50 border-border/50">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center gap-2">
+                      <Droplets className="w-4 h-4 text-cyan-400" />
+                      <h3 className="text-sm font-bold">Liquidity Map</h3>
+                      <span className="text-xs text-muted-foreground">— equal highs/lows, stop clusters, liquidity pools</span>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <LiquidityMapPanel
+                      zones={deepResult.liquidityMap}
+                      currentPrice={deepResult.entry ?? deepResult.equilibriumLevel}
+                      decimals={deepResult.pair.includes("JPY") || deepResult.pair.startsWith("XAU") || deepResult.pair.startsWith("XAG") ? 2 : deepResult.pair.startsWith("BTC") || deepResult.pair.startsWith("ETH") ? 2 : 5}
+                    />
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* COT Data */}
+              {deepResult.cotData && (
+                <Card className="bg-card/50 border-border/50">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center gap-2">
+                      <BookOpen className="w-4 h-4 text-primary" />
+                      <h3 className="text-sm font-bold">COT — Institutional Positioning</h3>
+                      <span className="text-xs text-muted-foreground">— CFTC Traders in Financial Futures</span>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <COTPanel cot={deepResult.cotData} pair={deepResult.pair} />
+                  </CardContent>
+                </Card>
+              )}
+
+            </div>
           )}
         </div>
       )}
