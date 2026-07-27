@@ -1636,8 +1636,12 @@ router.get("/dashboard-summary", async (req, res) => {
     pair: p, count: v.count,
     winRate: v.tp + v.sl > 0 ? parseFloat((v.tp / (v.tp + v.sl)).toFixed(4)) : 0,
   })).sort((a, b) => b.count - a.count).slice(0, 5);
-  // recentActivity: show only resolved trades (not expired noise) for the dashboard feed
-  const recentActivity = allSignals.filter(s => s.status !== "EXPIRED").slice(0, 5);
+  // recentActivity: ACTIVE signals only — no expired noise, no old synthetic junk
+  const REAL_PAIRS = new Set(["EURUSD","GBPUSD","USDJPY","AUDUSD","USDCAD","NZDUSD","USDCHF",
+    "GBPJPY","EURJPY","EURGBP","XAUUSD","XAGUSD","BTCUSD","ETHUSD","XRPUSD"]);
+  const recentActivity = allSignals
+    .filter(s => s.status === "ACTIVE" && REAL_PAIRS.has(s.pair))
+    .slice(0, 5);
   res.json({ totalSignals, activeSignals, winRate, avgConfidence, buySignals, sellSignals, topPairs, recentActivity });
 });
 
@@ -1694,16 +1698,26 @@ export function startAutoScanner() {
       const marketStatus = getMarketStatus();
       const prices       = await getLivePrices();
 
-      // ── Expire stale ACTIVE signals ──────────────────────────────────────
+      // ── Hard-delete EXPIRED signals (keep DB clean) ──────────────────────
+      await db.delete(signalsTable).where(eq(signalsTable.status, "EXPIRED"));
+
+      // ── Hard-delete stale ACTIVE signals past expiry window ───────────────
       const cutoffTime = new Date(Date.now() - EXPIRE_AFTER_HRS * 3_600_000);
       const active = await db.select().from(signalsTable)
         .where(eq(signalsTable.status, "ACTIVE"));
       for (const sig of active) {
         if (new Date(sig.createdAt!) < cutoffTime) {
-          await db.update(signalsTable)
-            .set({ status: "EXPIRED" })
-            .where(eq(signalsTable.id, sig.id));
+          await db.delete(signalsTable).where(eq(signalsTable.id, sig.id));
         }
+      }
+
+      // ── Hard-delete any lingering synthetic pair signals ──────────────────
+      const SYNTHETIC_PAIRS = ["R_10","R_25","R_50","R_75","R_100",
+        "1HZ10V","1HZ25V","1HZ50V","1HZ75V","1HZ100V",
+        "BOOM500","BOOM1000","CRASH500","CRASH1000",
+        "JD10","JD25","JD50","JD75","JD100"];
+      for (const sp of SYNTHETIC_PAIRS) {
+        await db.delete(signalsTable).where(eq(signalsTable.pair, sp));
       }
 
       // ── Only scan pairs currently open ───────────────────────────────────
