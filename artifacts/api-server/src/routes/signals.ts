@@ -9,8 +9,6 @@ import {
   DeleteSignalParams,
   AnalyzeSignalBody,
 } from "@workspace/api-zod";
-import WebSocket from "ws";
-
 const router = Router();
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -21,96 +19,86 @@ interface Candle { open: number; high: number; low: number; close: number }
 interface CandleWithTime extends Candle { time: number }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DERIV API  (single data source — wss://ws.binaryws.com)
+// YAHOO FINANCE  (free, no API key required)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Our pair name → Deriv symbol */
-const DERIV_MAP: Record<string, string> = {
-  // ── Forex majors ──
-  EURUSD: "frxEURUSD", GBPUSD: "frxGBPUSD", USDJPY: "frxUSDJPY",
-  AUDUSD: "frxAUDUSD", USDCAD: "frxUSDCAD", NZDUSD: "frxNZDUSD",
-  USDCHF: "frxUSDCHF",
-  // ── Forex crosses ──
-  GBPJPY: "frxGBPJPY", EURJPY: "frxEURJPY", EURGBP: "frxEURGBP",
-  AUDJPY: "frxAUDJPY", GBPCAD: "frxGBPCAD", AUDCAD: "frxAUDCAD",
-  GBPCHF: "frxGBPCHF", AUDNZD: "frxAUDNZD", CADCHF: "frxCADCHF",
-  NZDJPY: "frxNZDJPY", EURCAD: "frxEURCAD", EURCHF: "frxEURCHF",
-  EURAUD: "frxEURAUD", GBPAUD: "frxGBPAUD", CADJPY: "frxCADJPY",
-  AUDCHF: "frxAUDCHF",
-  // ── Metals ──
-  XAUUSD: "frxXAUUSD", XAGUSD: "frxXAGUSD",
-  // ── Crypto ──
-  BTCUSD: "cryBTCUSD", ETHUSD: "cryETHUSD", XRPUSD: "cryXRPUSD",
-  LTCUSD: "cryLTCUSD", DOGEUSD: "cryDOGEUSD",
-  // ── Deriv Synthetics — Volatility ──
-  R_10: "R_10", R_25: "R_25", R_50: "R_50", R_75: "R_75", R_100: "R_100",
-  // ── Deriv Synthetics — Step/1Hz ──
-  "1HZ10V": "1HZ10V", "1HZ25V": "1HZ25V", "1HZ50V": "1HZ50V",
-  "1HZ75V": "1HZ75V", "1HZ100V": "1HZ100V",
-  // ── Deriv Synthetics — Jump Diffusion ──
-  JD10: "JD10", JD25: "JD25", JD50: "JD50", JD75: "JD75", JD100: "JD100",
-  // ── Deriv Synthetics — BOOM / CRASH ──
-  BOOM500: "BOOM500", BOOM1000: "BOOM1000",
-  CRASH500: "CRASH500", CRASH1000: "CRASH1000",
+/** Our pair name → Yahoo Finance symbol */
+const YAHOO_MAP: Record<string, string> = {
+  // Forex majors
+  EURUSD: "EURUSD=X", GBPUSD: "GBPUSD=X", USDJPY: "JPY=X",
+  AUDUSD: "AUDUSD=X", USDCAD: "CAD=X",    NZDUSD: "NZDUSD=X",
+  USDCHF: "CHF=X",
+  // Forex crosses
+  GBPJPY: "GBPJPY=X", EURJPY: "EURJPY=X", EURGBP: "EURGBP=X",
+  AUDJPY: "AUDJPY=X", GBPCAD: "GBPCAD=X", AUDCAD: "AUDCAD=X",
+  GBPCHF: "GBPCHF=X", AUDNZD: "AUDNZD=X", CADCHF: "CADCHF=X",
+  NZDJPY: "NZDJPY=X", EURCAD: "EURCAD=X", EURCHF: "EURCHF=X",
+  EURAUD: "EURAUD=X", GBPAUD: "GBPAUD=X", CADJPY: "CADJPY=X",
+  AUDCHF: "AUDCHF=X",
+  // Metals
+  XAUUSD: "GC=F",     XAGUSD: "SI=F",
+  // Crypto (24/7)
+  BTCUSD: "BTC-USD",  ETHUSD: "ETH-USD",  XRPUSD: "XRP-USD",
+  LTCUSD: "LTC-USD",  DOGEUSD: "DOGE-USD",
 };
 
-/** Timeframe name → Deriv granularity (seconds) */
-const TF_TO_GRAN: Record<string, number> = {
-  M1: 60, M5: 300, M15: 900, M30: 1800,
-  H1: 3600, H4: 14400, D1: 86400,
+/** Timeframe → Yahoo interval + range to fetch enough bars */
+const TF_TO_YF: Record<string, { interval: string; range: string }> = {
+  M1:  { interval: "1m",  range: "1d"   },
+  M5:  { interval: "5m",  range: "5d"   },
+  M15: { interval: "15m", range: "60d"  },
+  M30: { interval: "30m", range: "60d"  },
+  H1:  { interval: "1h",  range: "730d" },
+  H4:  { interval: "1h",  range: "730d" }, // resample in caller if needed
+  D1:  { interval: "1d",  range: "max"  },
 };
 
-/** Single-shot Deriv WebSocket request — opens, sends, receives one message, closes. */
-function derivRequest(payload: object): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket("wss://ws.binaryws.com/websockets/v3?app_id=1089");
-    const timer = setTimeout(() => { ws.terminate(); reject(new Error("Deriv WS timeout")); }, 12000);
-    ws.on("open",    () => ws.send(JSON.stringify(payload)));
-    ws.on("message", (data) => { clearTimeout(timer); ws.terminate(); resolve(JSON.parse(data.toString())); });
-    ws.on("error",   (e)    => { clearTimeout(timer); reject(e); });
-  });
-}
-
-// ── Candle cache (2-minute TTL) ───────────────────────────────────────────────
+// ── Candle cache (5-minute TTL) ───────────────────────────────────────────────
 const _candleCache = new Map<string, { candles: CandleWithTime[]; fetchedAt: number }>();
-const CANDLE_TTL = 2 * 60 * 1000;
+const CANDLE_TTL = 5 * 60 * 1000;
 
 async function fetchRealCandles(pair: string, timeframe: string, limit = 150): Promise<CandleWithTime[]> {
   const key = `${pair}_${timeframe}`;
   const cached = _candleCache.get(key);
   if (cached && Date.now() - cached.fetchedAt < CANDLE_TTL) return cached.candles.slice(-limit);
 
-  const derivSym = DERIV_MAP[pair];
-  if (!derivSym) return []; // unmapped pair → caller uses simulation
+  const sym = YAHOO_MAP[pair];
+  if (!sym) return []; // synthetic/unmapped pair — no external data source
 
-  const gran  = TF_TO_GRAN[timeframe] || 3600;
-  const count = Math.max(limit, 150);
+  const { interval, range } = TF_TO_YF[timeframe] ?? { interval: "1h", range: "60d" };
 
   try {
-    const r = await derivRequest({
-      ticks_history:    derivSym,
-      adjust_start_time: 1,
-      count,
-      end:              "latest",
-      style:            "candles",
-      granularity:      gran,
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=${interval}&range=${range}`;
+    const res = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0" },
+      signal: AbortSignal.timeout(10000),
     });
-    if (r.error)          throw new Error(r.error.message);
-    if (!r.candles?.length) throw new Error("empty response");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-    const candles: CandleWithTime[] = r.candles.map((c: any) => ({
-      time:  Number(c.epoch),
-      open:  parseFloat(c.open),
-      high:  parseFloat(c.high),
-      low:   parseFloat(c.low),
-      close: parseFloat(c.close),
-    }));
+    const json = await res.json() as any;
+    const result = json?.chart?.result?.[0];
+    if (!result) throw new Error("empty response");
+
+    const timestamps: number[] = result.timestamp ?? [];
+    const quote = result.indicators?.quote?.[0] ?? {};
+
+    const candles: CandleWithTime[] = timestamps
+      .map((t: number, i: number) => ({
+        time:  t,
+        open:  quote.open?.[i],
+        high:  quote.high?.[i],
+        low:   quote.low?.[i],
+        close: quote.close?.[i],
+      }))
+      .filter(c => c.open != null && c.high != null && c.low != null && c.close != null);
+
+    if (!candles.length) throw new Error("no valid candles in response");
 
     _candleCache.set(key, { candles, fetchedAt: Date.now() });
-    console.log(`[Deriv] ${pair}/${timeframe}: ${candles.length} candles (last=${candles.at(-1)?.close})`);
+    console.log(`[Yahoo] ${pair}/${timeframe}: ${candles.length} candles (last=${candles.at(-1)?.close})`);
     return candles.slice(-limit);
   } catch (e) {
-    console.warn(`[Deriv] ${pair}/${timeframe}: ${(e as Error).message}`);
+    console.warn(`[Yahoo] ${pair}/${timeframe}: ${(e as Error).message}`);
     return [];
   }
 }
@@ -452,37 +440,31 @@ let _priceFetchedAt = 0;
 let _fetchInFlight: Promise<void> | null = null;
 
 async function _doFetchPrices(): Promise<void> {
-  const pairs = Object.keys(DERIV_MAP);
+  const pairs = Object.keys(YAHOO_MAP);
   const live: Record<string, number> = {};
 
-  // Fetch in batches of 6 to avoid too many concurrent WS connections
-  const BATCH = 6;
+  // Batch symbols into Yahoo Finance quote requests (up to 10 per call)
+  const BATCH = 10;
   for (let i = 0; i < pairs.length; i += BATCH) {
     const chunk = pairs.slice(i, i + BATCH);
-    const results = await Promise.allSettled(
-      chunk.map(async (pair) => {
-        const sym = DERIV_MAP[pair];
-        const r = await derivRequest({
-          ticks_history: sym,
-          count:         1,
-          end:           "latest",
-          style:         "ticks",
-        });
-        if (r.error || !r.history?.prices?.length) return null;
-        return { pair, price: parseFloat(r.history.prices.at(-1)) };
-      })
-    );
-    for (const res of results) {
-      if (res.status === "fulfilled" && res.value) {
-        live[res.value.pair] = res.value.price;
+    const symbols = chunk.map(p => YAHOO_MAP[p]).join(",");
+    try {
+      const res = await fetch(
+        `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}`,
+        { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(8000) }
+      );
+      if (!res.ok) continue;
+      const json = await res.json() as any;
+      for (const q of json?.quoteResponse?.result ?? []) {
+        const pair = chunk.find(p => YAHOO_MAP[p] === q.symbol);
+        if (pair && q.regularMarketPrice != null) live[pair] = q.regularMarketPrice;
       }
-    }
+    } catch { /* keep existing cached value */ }
   }
 
-  // Merge — keep existing values for any pairs that failed
   _priceCache = { ..._priceCache, ...live };
   _priceFetchedAt = Date.now();
-  console.log(`[Deriv prices] refreshed ${Object.keys(live).length}/${pairs.length} pairs`);
+  console.log(`[Yahoo prices] refreshed ${Object.keys(live).length}/${pairs.length} pairs`);
 }
 
 async function getLivePrices(): Promise<Record<string, number>> {
@@ -997,20 +979,16 @@ function isPairTradeable(pair: string, status: ReturnType<typeof getMarketStatus
 
 // ── AI Scanner — scan a watchlist, return only high-confidence signals ────────
 
-// All pairs must exist in DERIV_MAP — data fetched exclusively from Deriv API
+// Pairs sourced from Yahoo Finance (free, no key required)
 const SCANNER_DEFAULT_PAIRS = [
   // Forex majors
   "EURUSD","GBPUSD","USDJPY","AUDUSD","USDCAD","NZDUSD","USDCHF",
   // Forex crosses
-  "GBPJPY","EURJPY","EURGBP","AUDJPY","GBPCAD","AUDNZD",
+  "GBPJPY","EURJPY","EURGBP","AUDJPY","GBPCAD","AUDNZD","EURCAD","GBPAUD",
   // Metals
   "XAUUSD","XAGUSD",
   // Crypto (24/7)
   "BTCUSD","ETHUSD","XRPUSD",
-  // Synthetics — run 24/7 including weekends
-  "R_10","R_25","R_50","R_75","R_100",
-  "BOOM500","BOOM1000","CRASH500","CRASH1000",
-  "JD10","JD25","JD50",
 ];
 
 router.get("/market-status", (_req, res) => {
