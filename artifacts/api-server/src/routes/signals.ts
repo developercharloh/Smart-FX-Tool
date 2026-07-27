@@ -1304,8 +1304,8 @@ async function generateAnalysis(pair: string, timeframe: string, basePrice: numb
     signal = "NEUTRAL"; signalTrend = bullPct >= 0.5 ? "BULLISH" : "BEARISH";
   }
 
-  // Update MAX_SCORE to account for all factors (+2 W1, +1 psych, +2 COT, +2 vol)
-  const MAX_SCORE_V2 = 40;
+  // Calibrated MAX_SCORE: a 16-pt winner → ~84% confidence. Strong signal = 80%+ for EA.
+  const MAX_SCORE_V2 = 18;
   const winnerScoreV2 = signal === "BUY" ? bullScore : bearScore;
   const confidenceV2  = signal === "NEUTRAL"
     ? 0
@@ -1731,9 +1731,24 @@ export function startAutoScanner() {
       const SYNTHETIC_PAIRS = ["R_10","R_25","R_50","R_75","R_100",
         "1HZ10V","1HZ25V","1HZ50V","1HZ75V","1HZ100V",
         "BOOM500","BOOM1000","CRASH500","CRASH1000",
-        "JD10","JD25","JD50","JD75","JD100"];
+        "JD10","JD25","JD50","JD75","JD100",
+        "GBPAUD","AUDNZD"]; // removed pairs from old scanner versions
       for (const sp of SYNTHETIC_PAIRS) {
         await db.delete(signalsTable).where(eq(signalsTable.pair, sp));
+      }
+
+      // ── Dedup: keep only the newest signal per pair|TF|direction ─────────
+      const allActive = await db.select().from(signalsTable)
+        .where(eq(signalsTable.status, "ACTIVE"))
+        .orderBy(desc(signalsTable.createdAt));
+      const seenKeys = new Set<string>();
+      for (const sig of allActive) {
+        const key = `${sig.pair}|${sig.timeframe}|${sig.signal}`;
+        if (seenKeys.has(key)) {
+          await db.delete(signalsTable).where(eq(signalsTable.id, sig.id));
+        } else {
+          seenKeys.add(key);
+        }
       }
 
       // ── Only scan pairs currently open ───────────────────────────────────

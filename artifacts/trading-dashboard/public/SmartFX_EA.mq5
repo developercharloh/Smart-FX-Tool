@@ -48,7 +48,7 @@
 input string  InpApiUrl          = "https://smart-fx-tool.site"; // API base URL
 input double  InpLotSize         = 0.01;     // Default lot size (overridden by dashboard)
 input int     InpMagicNumber     = 20260725; // Magic number (unique per EA instance)
-input int     InpMinConfidence   = 80;       // Min signal confidence % (overridden by dashboard)
+input int     InpMinConfidence   = 30;       // Min signal confidence % (overridden by dashboard)
 input int     InpPollSeconds     = 10;       // Poll interval in seconds
 input int     InpOrderExpireMins = 60;       // Limit order expiry in minutes
 
