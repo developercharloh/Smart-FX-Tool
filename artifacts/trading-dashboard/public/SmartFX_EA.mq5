@@ -632,7 +632,7 @@ string ResolveSymbol(const string &pair)
 //+------------------------------------------------------------------+
 //| HTTP helpers                                                      |
 //+------------------------------------------------------------------+
-string HttpGet(const string &url)
+string HttpGet(string url)
 {
    char   postData[], response[];
    string headers;
@@ -655,7 +655,7 @@ string HttpGet(const string &url)
    return body;
 }
 
-void HttpPost(const string &url, const string &jsonBody)
+void HttpPost(string url, string jsonBody)
 {
    char   postData[], response[];
    string headers;

@@ -1364,14 +1364,13 @@ function isPairTradeable(pair: string, status: ReturnType<typeof getMarketStatus
 
 // Pairs sourced from Yahoo Finance (free, no key required)
 const SCANNER_DEFAULT_PAIRS = [
-  // Forex majors
+  // Forex majors only (real interbank markets)
   "EURUSD","GBPUSD","USDJPY","AUDUSD","USDCAD","NZDUSD","USDCHF",
-  // Forex crosses
-  "GBPJPY","EURJPY","EURGBP","AUDJPY","GBPCAD","AUDNZD","EURCAD","GBPAUD",
-  // Metals
+  // Metals (real commodities)
   "XAUUSD","XAGUSD",
-  // Crypto (24/7)
+  // Crypto — 24/7 real markets
   "BTCUSD","ETHUSD","XRPUSD",
+  // NO Deriv volatility indices (R_10, R_25, 1HZ*, BOOM*, CRASH*, JD*) — man-made/simulated markets
 ];
 
 router.get("/market-status", (_req, res) => {
@@ -1432,7 +1431,7 @@ router.post("/scan", async (req, res) => {
 router.post("/resolve-pending", async (_req, res) => {
   const active = await db.select().from(signalsTable).where(eq(signalsTable.status, "ACTIVE"));
   const now = Date.now();
-  const EXPIRE_AFTER_HRS = 4;
+  const EXPIRE_AFTER_HRS = 24;
   let expired = 0;
   for (const sig of active) {
     const ageHours = (now - new Date(sig.createdAt!).getTime()) / 3_600_000;
@@ -1516,7 +1515,7 @@ router.delete("/:id", async (req, res) => {
 export function startAutoScanner() {
   const SCAN_INTERVAL_MS  = 5 * 60 * 1000;   // every 5 minutes
   const MIN_CONFIDENCE    = 25;
-  const EXPIRE_AFTER_HRS  = 4;
+  const EXPIRE_AFTER_HRS  = 24;
   const SCAN_TIMEFRAMES   = ["H1", "M15"];
 
   async function runScan() {
