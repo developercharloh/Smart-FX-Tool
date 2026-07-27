@@ -1569,7 +1569,17 @@ export function startAutoScanner() {
         .sort((a, b) => b.confidenceScore - a.confidenceScore)
         .slice(0, 10); // cap at 10 per cycle
 
+      // Dedup: skip pairs that already have an ACTIVE signal in the same direction
+      const existingActive = await db.select().from(signalsTable)
+        .where(eq(signalsTable.status, "ACTIVE"));
+      const activeKeys = new Set(
+        existingActive.map(s => `${s.pair}|${s.timeframe}|${s.signal}`)
+      );
+
+      let saved_count = 0;
       for (const sig of highConf) {
+        const key = `${sig.pair}|${sig.timeframe}|${sig.signal}`;
+        if (activeKeys.has(key)) continue; // already have a live signal for this pair/TF/direction
         const [saved] = await db.insert(signalsTable).values({
           pair:            sig.pair,
           signal:          sig.signal,
@@ -1585,11 +1595,13 @@ export function startAutoScanner() {
           status:          "ACTIVE",
         } as any).returning();
         sendNotifications(saved).catch(() => {});
+        activeKeys.add(key); // prevent dupes within the same batch
+        saved_count++;
       }
 
       console.log(
         `[autoScanner] Scanned ${openPairs.length} pairs × ${SCAN_TIMEFRAMES.length} TFs` +
-        ` → ${highConf.length} high-confidence signals saved`
+        ` → ${saved_count} new signals saved (${highConf.length - saved_count} dupes skipped)`
       );
     } catch (err) {
       console.error("[autoScanner] Error:", err);
