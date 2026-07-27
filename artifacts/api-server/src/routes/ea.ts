@@ -17,7 +17,7 @@ const router = Router();
 // Returns null when nothing new.
 router.get("/signal", async (req, res) => {
   try {
-    const minConf = Math.max(1, parseInt(String(req.query.min_confidence ?? "80")) || 80);
+    const minConf = Math.max(1, parseInt(String(req.query.min_confidence ?? "30")) || 30);
     const lastId  = parseInt(String(req.query.last_id ?? "0")) || 0;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -326,7 +326,7 @@ router.get("/settings", async (_req, res) => {
     const rows = await db.select().from(eaSettingsTable).where(eq(eaSettingsTable.id, 1)).limit(1);
     if (!rows[0]) {
       // Return defaults if not yet set
-      return res.json({ dailyProfitTarget: 0, dailyLossLimit: 0, lotSize: 0.01, minConfidence: 80 });
+      return res.json({ dailyProfitTarget: 0, dailyLossLimit: 0, lotSize: 0.01, minConfidence: 30 });
     }
     const s = rows[0];
     return res.json({
@@ -351,7 +351,7 @@ router.post("/settings", async (req, res) => {
       dailyProfitTarget: Math.max(0, Number(dailyProfitTarget) || 0),
       dailyLossLimit:    Math.max(0, Number(dailyLossLimit)    || 0),
       lotSize:           Math.max(0.01, Number(lotSize)        || 0.01),
-      minConfidence:     Math.min(100, Math.max(1, Number(minConfidence) || 80)),
+      minConfidence:     Math.min(100, Math.max(1, Number(minConfidence) || 30)),
       minProfitClose:    Math.max(0, Number(minProfitClose)    || 0),
       updatedAt:         new Date(),
     };
