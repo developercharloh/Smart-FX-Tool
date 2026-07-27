@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { signalsTable, insertSignalSchema } from "@workspace/db";
-import { eq, desc, and, sql } from "drizzle-orm";
+import { eq, desc, and, sql, inArray } from "drizzle-orm";
 import {
   ListSignalsQueryParams,
   CreateSignalBody,
@@ -1074,8 +1074,8 @@ async function generateAnalysis(pair: string, timeframe: string, basePrice: numb
 
   // Liquidity Sweep
   if (liqSweep.detected) {
-    if (liqSweep.type === "SSL") bullScore += 3; // swept sells = bullish reversal
-    if (liqSweep.type === "BSL") bearScore += 3; // swept buys = bearish reversal
+    if (liqSweep.type === "SSL") bullScore += 2; // swept sells = bullish reversal
+    if (liqSweep.type === "BSL") bearScore += 2; // swept buys = bearish reversal
   }
 
   // Premium/Discount: buy in discount, sell in premium
@@ -1128,11 +1128,8 @@ async function generateAnalysis(pair: string, timeframe: string, basePrice: numb
     if (sentiment.volumeBias === "BEARISH") bearScore += volBonus;
   }
 
-  // Session quality
-  if (session.quality === "AVOID" && !isSynthetic) {
-    bullScore = Math.floor(bullScore * 0.7);
-    bearScore = Math.floor(bearScore * 0.7);
-  }
+  // Session quality — noted in reasons but does NOT reduce raw scores.
+  // Off-hours signals are rarer but structurally valid; confidence reflects session quality.
 
   // ── Determine Signal ────────────────────────────────────────────────────────
   // Requires BOTH directional dominance (58%) AND minimum raw score (≥8 points).
@@ -1681,6 +1678,25 @@ router.delete("/:id", async (req, res) => {
   if (!parsed.success) { res.status(400).json({ error: "Invalid id" }); return; }
   await db.delete(signalsTable).where(eq(signalsTable.id, parsed.data.id));
   res.status(204).send();
+});
+
+// ── One-shot admin purge: removes synthetic + expired signals from production ──
+router.post("/admin/purge-synthetic", async (_req, res) => {
+  const SYNTHETIC_PAIRS = [
+    "R_10","R_25","R_50","R_75","R_100",
+    "1HZ10V","1HZ25V","1HZ50V","1HZ75V","1HZ100V",
+    "BOOM500","BOOM1000","CRASH500","CRASH1000",
+    "JD10","JD25","JD50","JD75","JD100",
+  ];
+  const [expiredDel] = await Promise.all([
+    db.delete(signalsTable).where(eq(signalsTable.status, "EXPIRED")).returning({ id: signalsTable.id }),
+  ]);
+  const synthDel = await db.delete(signalsTable)
+    .where(inArray(signalsTable.pair, SYNTHETIC_PAIRS))
+    .returning({ id: signalsTable.id });
+  const remaining = await db.select({ count: sql<number>`count(*)` }).from(signalsTable);
+  console.log(`[purge] Deleted ${expiredDel.length} EXPIRED + ${synthDel.length} synthetic. Remaining: ${remaining[0].count}`);
+  res.json({ deletedExpired: expiredDel.length, deletedSynthetic: synthDel.length, remaining: remaining[0].count });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
