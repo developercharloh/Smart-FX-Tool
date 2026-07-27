@@ -651,7 +651,7 @@ async function generateAnalysis(pair: string, timeframe: string, basePrice: numb
   const totalScore  = bullScore + bearScore;
   const bullPct     = totalScore > 0 ? bullScore / totalScore : 0.5;
   const threshold   = 0.58;
-  const MIN_WINNER_SCORE = 8; // must have at least 8 confluence points — prevents noise signals
+  const MIN_WINNER_SCORE = 5; // must have at least 5 confluence points — prevents noise signals
 
   let signal: "BUY" | "SELL" | "NEUTRAL";
   let signalTrend: "BULLISH" | "BEARISH";
@@ -1152,7 +1152,7 @@ router.delete("/:id", async (req, res) => {
 
 export function startAutoScanner() {
   const SCAN_INTERVAL_MS  = 5 * 60 * 1000;   // every 5 minutes
-  const MIN_CONFIDENCE    = 80;
+  const MIN_CONFIDENCE    = 62;
   const EXPIRE_AFTER_HRS  = 4;
   const SCAN_TIMEFRAMES   = ["H1", "M15"];
 
@@ -1184,12 +1184,20 @@ export function startAutoScanner() {
         SCAN_TIMEFRAMES.map(tf => ({ pair, tf }))
       );
 
-      const settled = await Promise.allSettled(
-        tasks.map(async ({ pair, tf }) => {
-          const basePrice = prices[pair] ?? FALLBACK_PRICES[pair] ?? 1.0;
-          return generateAnalysis(pair, tf, basePrice);
-        })
-      );
+      // Run max 4 analyses concurrently to avoid Deriv WS rate limits (app_id=1)
+      const CONCURRENCY = 4;
+      const results: PromiseSettledResult<any>[] = [];
+      for (let i = 0; i < tasks.length; i += CONCURRENCY) {
+        const batch = tasks.slice(i, i + CONCURRENCY);
+        const batchResults = await Promise.allSettled(
+          batch.map(({ pair, tf }) => {
+            const basePrice = prices[pair] ?? FALLBACK_PRICES[pair] ?? 1.0;
+            return generateAnalysis(pair, tf, basePrice);
+          })
+        );
+        results.push(...batchResults);
+      }
+      const settled = results;
 
       const highConf = settled
         .filter((r): r is PromiseFulfilledResult<any> => r.status === "fulfilled")
