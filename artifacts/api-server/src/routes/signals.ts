@@ -430,9 +430,11 @@ const COT_TTL = 12 * 60 * 60 * 1000; // 12 hours
 async function fetchCOTData(): Promise<Map<string, COTCurrencyData>> {
   if (_cotCache && Date.now() - _cotCache.fetchedAt < COT_TTL) return _cotCache.data;
   try {
-    // CFTC Socrata public JSON API — no API key, no zip extraction needed
-    const codeList = Object.values(COT_CODES).map(c => `'${c}'`).join(",");
-    const url = `https://publicreporting.cftc.gov/resource/gpe5-46if.json?$limit=100&$order=as_of_date_in_form_yymmdd+DESC&$where=cftc_contract_market_code+in(${codeList})`;
+    // CFTC Socrata public JSON API — Traders in Financial Futures (TFF)
+    // Field names confirmed from live API response (no _all suffix for lev_money)
+    const url = "https://publicreporting.cftc.gov/resource/gpe5-46if.json" +
+      "?$limit=500&$order=report_date_as_yyyy_mm_dd+DESC" +
+      "&$select=cftc_contract_market_code,report_date_as_yyyy_mm_dd,lev_money_positions_long,lev_money_positions_short";
     const res = await fetch(url, {
       headers: { "Accept": "application/json", "User-Agent": "Mozilla/5.0" },
       signal: AbortSignal.timeout(15000),
@@ -440,14 +442,16 @@ async function fetchCOTData(): Promise<Map<string, COTCurrencyData>> {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const rows: any[] = await res.json();
     if (!Array.isArray(rows) || rows.length === 0) throw new Error("empty COT response");
+    const knownCodes = new Set(Object.values(COT_CODES));
 
     const result = new Map<string, COTCurrencyData>();
     for (const row of rows) {
       const code     = row.cftc_contract_market_code;
+      if (!knownCodes.has(code)) continue;
       const currency = Object.entries(COT_CODES).find(([, c]) => c === code)?.[0];
       if (!currency || result.has(currency)) continue; // keep most-recent row per currency
-      const longs  = parseFloat(row.lev_money_positions_long_all  ?? "0");
-      const shorts = parseFloat(row.lev_money_positions_short_all ?? "0");
+      const longs  = parseFloat(row.lev_money_positions_long  ?? "0");
+      const shorts = parseFloat(row.lev_money_positions_short ?? "0");
       const net    = longs - shorts;
       const ttl    = longs + shorts || 1;
       result.set(currency, {
