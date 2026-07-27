@@ -530,7 +530,7 @@ export default function Analyze() {
   // Scanner state — default to best watchlist for current market hours
   const [watchlistKey, setWatchlistKey] = useState<string>(() => suggestWatchlist(detectMarketStatus()));
   const [scanTF, setScanTF]             = useState<string[]>(["H1"]);
-  const [minConf, setMinConf]           = useState(80);
+  const [minConf, setMinConf]           = useState(30);
   const [scanning, setScanning]         = useState(false);
   const [scanResults, setScanResults]   = useState<ScanResult[] | null>(null);
   const [skippedPairs, setSkippedPairs] = useState<string[]>([]);
@@ -768,7 +768,7 @@ export default function Analyze() {
           <div className="space-y-1.5">
             <label className="text-xs font-bold uppercase tracking-widest text-slate-500">Min Confidence</label>
             <div className="flex items-center gap-2 h-[46px]">
-              {[70, 80, 85, 90].map(v => (
+              {[30, 50, 65, 80].map(v => (
                 <button key={v}
                   onClick={() => setMinConf(v)}
                   style={minConf === v
