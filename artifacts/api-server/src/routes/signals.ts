@@ -632,8 +632,8 @@ async function generateAnalysis(pair: string, timeframe: string, basePrice: numb
   // Low-confluence situations return NEUTRAL — no forced signal.
   const totalScore  = bullScore + bearScore;
   const bullPct     = totalScore > 0 ? bullScore / totalScore : 0.5;
-  const threshold   = 0.58;
-  const MIN_WINNER_SCORE = 5; // must have at least 5 confluence points — prevents noise signals
+  const threshold   = 0.55;
+  const MIN_WINNER_SCORE = 3; // must have at least 3 confluence points — prevents noise signals
 
   let signal: "BUY" | "SELL" | "NEUTRAL";
   let signalTrend: "BULLISH" | "BEARISH";
@@ -1130,7 +1130,7 @@ router.delete("/:id", async (req, res) => {
 
 export function startAutoScanner() {
   const SCAN_INTERVAL_MS  = 5 * 60 * 1000;   // every 5 minutes
-  const MIN_CONFIDENCE    = 62;
+  const MIN_CONFIDENCE    = 25;
   const EXPIRE_AFTER_HRS  = 4;
   const SCAN_TIMEFRAMES   = ["H1", "M15"];
 
