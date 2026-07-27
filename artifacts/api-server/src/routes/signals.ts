@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { signalsTable, insertSignalSchema } from "@workspace/db";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, sql } from "drizzle-orm";
 import {
   ListSignalsQueryParams,
   CreateSignalBody,
@@ -1261,14 +1261,25 @@ router.get("/", async (req, res) => {
   const parsed = ListSignalsQueryParams.safeParse(req.query);
   if (!parsed.success) { res.status(400).json({ error: "Invalid query parameters" }); return; }
   const { pair, signal, timeframe } = parsed.data;
-  const conditions = [];
-  if (pair) conditions.push(eq(signalsTable.pair, pair));
-  if (signal) conditions.push(eq(signalsTable.signal, signal as "BUY" | "SELL"));
+  // Only return live (ACTIVE) signals — expired ones are removed from the feed entirely
+  const conditions: any[] = [eq(signalsTable.status, "ACTIVE")];
+  if (pair)      conditions.push(eq(signalsTable.pair, pair));
+  if (signal)    conditions.push(eq(signalsTable.signal, signal as "BUY" | "SELL"));
   if (timeframe) conditions.push(eq(signalsTable.timeframe, timeframe));
   const signals = await db.select().from(signalsTable)
-    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .where(and(...conditions))
     .orderBy(desc(signalsTable.createdAt));
   res.json(signals);
+});
+
+// ── Signal history (resolved trades: HIT_TP or HIT_SL) for the Transactions page ──
+router.get("/history", async (req, res) => {
+  const limit = Math.min(Number(req.query.limit ?? 200), 500);
+  const records = await db.select().from(signalsTable)
+    .where(sql`${signalsTable.status} IN ('HIT_TP', 'HIT_SL')`)
+    .orderBy(desc(signalsTable.createdAt))
+    .limit(limit);
+  res.json(records);
 });
 
 router.post("/analyze", async (req, res) => {
@@ -1455,7 +1466,9 @@ router.get("/dashboard-summary", async (req, res) => {
     pair: p, count: v.count,
     winRate: v.tp + v.sl > 0 ? parseFloat((v.tp / (v.tp + v.sl)).toFixed(4)) : 0,
   })).sort((a, b) => b.count - a.count).slice(0, 5);
-  res.json({ totalSignals, activeSignals, winRate, avgConfidence, buySignals, sellSignals, topPairs, recentActivity: allSignals.slice(0, 5) });
+  // recentActivity: show only resolved trades (not expired noise) for the dashboard feed
+  const recentActivity = allSignals.filter(s => s.status !== "EXPIRED").slice(0, 5);
+  res.json({ totalSignals, activeSignals, winRate, avgConfidence, buySignals, sellSignals, topPairs, recentActivity });
 });
 
 router.patch("/:id/status", async (req, res) => {

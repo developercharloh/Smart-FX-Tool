@@ -4,19 +4,25 @@ import * as schema from "./schema";
 
 const { Pool } = pg;
 
-if (!process.env.DATABASE_URL) {
+// Prefer NEON_DATABASE_URL (user-managed Neon.tech), fall back to Replit-provisioned DATABASE_URL
+const connectionString = process.env.NEON_DATABASE_URL ?? process.env.DATABASE_URL;
+
+if (!connectionString) {
   throw new Error(
-    "DATABASE_URL must be set. Did you forget to provision a database?",
+    "No database URL found. Set NEON_DATABASE_URL or DATABASE_URL."
   );
 }
 
 export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL?.includes("sslmode=require") ||
-       process.env.NODE_ENV === "production"
+  connectionString,
+  ssl: connectionString.includes("sslmode=require") || connectionString.includes("neon.tech")
     ? { rejectUnauthorized: false }
     : false,
+  max: 10,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000,
 });
+
 export const db = drizzle(pool, { schema });
 
 export * from "./schema";
