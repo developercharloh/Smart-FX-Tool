@@ -1714,41 +1714,59 @@ export function startAutoScanner() {
       const marketStatus = getMarketStatus();
       const prices       = await getLivePrices();
 
-      // ── Hard-delete EXPIRED signals (keep DB clean) ──────────────────────
-      await db.delete(signalsTable).where(eq(signalsTable.status, "EXPIRED"));
+      // ── Cleanup steps: each wrapped independently so a DB hiccup doesn't abort the scan ──
 
-      // ── Hard-delete stale ACTIVE signals past expiry window ───────────────
-      const cutoffTime = new Date(Date.now() - EXPIRE_AFTER_HRS * 3_600_000);
-      const active = await db.select().from(signalsTable)
-        .where(eq(signalsTable.status, "ACTIVE"));
-      for (const sig of active) {
-        if (new Date(sig.createdAt!) < cutoffTime) {
-          await db.delete(signalsTable).where(eq(signalsTable.id, sig.id));
-        }
+      // Hard-delete EXPIRED signals (keep DB clean)
+      try {
+        await db.delete(signalsTable).where(eq(signalsTable.status, "EXPIRED"));
+      } catch (e) {
+        console.warn("[autoScanner] cleanup-expired failed (non-fatal):", (e as Error).message);
       }
 
-      // ── Hard-delete any lingering synthetic pair signals ──────────────────
-      const SYNTHETIC_PAIRS = ["R_10","R_25","R_50","R_75","R_100",
-        "1HZ10V","1HZ25V","1HZ50V","1HZ75V","1HZ100V",
-        "BOOM500","BOOM1000","CRASH500","CRASH1000",
-        "JD10","JD25","JD50","JD75","JD100",
-        "GBPAUD","AUDNZD"]; // removed pairs from old scanner versions
-      for (const sp of SYNTHETIC_PAIRS) {
-        await db.delete(signalsTable).where(eq(signalsTable.pair, sp));
+      // Hard-delete stale ACTIVE signals past expiry window
+      try {
+        const cutoffTime = new Date(Date.now() - EXPIRE_AFTER_HRS * 3_600_000);
+        const active = await db.select().from(signalsTable)
+          .where(eq(signalsTable.status, "ACTIVE"));
+        for (const sig of active) {
+          if (new Date(sig.createdAt!) < cutoffTime) {
+            await db.delete(signalsTable).where(eq(signalsTable.id, sig.id)).catch(() => {});
+          }
+        }
+      } catch (e) {
+        console.warn("[autoScanner] cleanup-stale failed (non-fatal):", (e as Error).message);
       }
 
-      // ── Dedup: keep only the newest signal per pair|TF|direction ─────────
-      const allActive = await db.select().from(signalsTable)
-        .where(eq(signalsTable.status, "ACTIVE"))
-        .orderBy(desc(signalsTable.createdAt));
-      const seenKeys = new Set<string>();
-      for (const sig of allActive) {
-        const key = `${sig.pair}|${sig.timeframe}|${sig.signal}`;
-        if (seenKeys.has(key)) {
-          await db.delete(signalsTable).where(eq(signalsTable.id, sig.id));
-        } else {
-          seenKeys.add(key);
+      // Hard-delete any lingering synthetic pair signals
+      try {
+        const SYNTHETIC_PAIRS = ["R_10","R_25","R_50","R_75","R_100",
+          "1HZ10V","1HZ25V","1HZ50V","1HZ75V","1HZ100V",
+          "BOOM500","BOOM1000","CRASH500","CRASH1000",
+          "JD10","JD25","JD50","JD75","JD100",
+          "GBPAUD","AUDNZD"];
+        for (const sp of SYNTHETIC_PAIRS) {
+          await db.delete(signalsTable).where(eq(signalsTable.pair, sp)).catch(() => {});
         }
+      } catch (e) {
+        console.warn("[autoScanner] cleanup-synthetics failed (non-fatal):", (e as Error).message);
+      }
+
+      // Dedup: keep only the newest signal per pair|TF|direction
+      try {
+        const allActive = await db.select().from(signalsTable)
+          .where(eq(signalsTable.status, "ACTIVE"))
+          .orderBy(desc(signalsTable.createdAt));
+        const seenKeys = new Set<string>();
+        for (const sig of allActive) {
+          const key = `${sig.pair}|${sig.timeframe}|${sig.signal}`;
+          if (seenKeys.has(key)) {
+            await db.delete(signalsTable).where(eq(signalsTable.id, sig.id)).catch(() => {});
+          } else {
+            seenKeys.add(key);
+          }
+        }
+      } catch (e) {
+        console.warn("[autoScanner] dedup failed (non-fatal):", (e as Error).message);
       }
 
       // ── Only scan pairs currently open ───────────────────────────────────
