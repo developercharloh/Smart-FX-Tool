@@ -288,18 +288,7 @@ export function TopNav() {
           </div>
         </div>
 
-        {/* ── Mobile nav strip ── */}
-        <div
-          className="lg:hidden overflow-x-auto scrollbar-none"
-          style={{
-            background:   "rgba(8,13,20,0.95)",
-            borderBottom: "1px solid rgba(59,130,246,0.08)",
-          }}
-        >
-          <div className="flex items-center gap-1.5 px-3 py-2" style={{ width: "max-content", minWidth: "100%" }}>
-            {NAV_LINKS.map(link => <NavLink key={link.href} link={link} compact />)}
-          </div>
-        </div>
+        {/* Mobile nav strip removed — replaced by MobileNav bottom tab bar */}
       </header>
     </>
   );
