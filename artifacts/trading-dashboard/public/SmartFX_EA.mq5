@@ -369,20 +369,27 @@ void FetchAndTrade()
    if (lots <= 0) { g_lastSignalId = sigId; return; }
 
    // ── SL/TP sanity check — reject collapsed/invalid stops ─────────
-   double bid = SymbolInfoDouble(symbol, SYMBOL_BID);
+   // BUY executes at Ask; SELL executes at Bid — validate against the right price.
+   double curBid  = SymbolInfoDouble(symbol, SYMBOL_BID);
+   double curAsk  = SymbolInfoDouble(symbol, SYMBOL_ASK);
    double minStop = SymbolInfoDouble(symbol, SYMBOL_POINT)
                     * (double)SymbolInfoInteger(symbol, SYMBOL_TRADE_STOPS_LEVEL)
                     * 2;   // 2× broker minimum stop distance
+
+   if (sl <= 0 || tp <= 0)
+   { Print("SmartFX: SKIP signal #", sigId, " — zero SL/TP (JSON parse failure?) SL:", sl, " TP:", tp);
+     g_lastSignalId = sigId; return; }
+
    if (dir == "BUY")
    {
-      if (sl <= 0 || sl >= bid || tp <= 0 || tp <= bid)
-      { Print("SmartFX: SKIP signal #", sigId, " — invalid BUY stops SL:", sl, " TP:", tp, " bid:", bid);
+      if (sl >= curAsk || tp <= curAsk)
+      { Print("SmartFX: SKIP signal #", sigId, " — invalid BUY stops SL:", sl, " TP:", tp, " ask:", curAsk);
         g_lastSignalId = sigId; return; }
    }
    else
    {
-      if (sl <= 0 || sl <= bid || tp <= 0 || tp >= bid)
-      { Print("SmartFX: SKIP signal #", sigId, " — invalid SELL stops SL:", sl, " TP:", tp, " bid:", bid);
+      if (sl <= curBid || tp >= curBid)
+      { Print("SmartFX: SKIP signal #", sigId, " — invalid SELL stops SL:", sl, " TP:", tp, " bid:", curBid);
         g_lastSignalId = sigId; return; }
    }
    if (MathAbs(sl - tp) < minStop)
@@ -455,43 +462,56 @@ void ProcessForceQueue()
 
    if (fqId == "" || pair == "" || dir == "") return;
 
-   MarkForceDone(fqId);
+   // NOTE: MarkForceDone is called AFTER successful execution, not here
 
    string symbol = ResolveSymbol(pair);
-   if (symbol == "") { Print("SmartFX MANUAL: Symbol not found [", pair, "]"); return; }
+   if (symbol == "") { Print("SmartFX MANUAL: Symbol not found [", pair, "]"); MarkForceDone(fqId); return; }
 
    if (lots <= 0) lots = LotSize();
    double requestedLots = lots;
    lots = NormalizeLots(symbol, lots);
-   if (lots <= 0) return;
+   if (lots <= 0) { MarkForceDone(fqId); return; }
 
    // ── Broker minimum sanity check ─────────────────────────────────
    if (lots > requestedLots * 50)
    {
       Print("SmartFX MANUAL: SKIPPED — broker minimum (", DoubleToString(lots, 2),
             ") far exceeds requested (", DoubleToString(requestedLots, 2), "). Use a forex pair.");
+      MarkForceDone(fqId);
       return;
    }
 
-   // ── SL/TP sanity check — reject collapsed/invalid stops ─────────
-   double mbid = SymbolInfoDouble(symbol, SYMBOL_BID);
+   // ── SL/TP sanity check — BUY validates against Ask, SELL against Bid ───
+   double mBid     = SymbolInfoDouble(symbol, SYMBOL_BID);
+   double mAsk     = SymbolInfoDouble(symbol, SYMBOL_ASK);
    double mMinStop = SymbolInfoDouble(symbol, SYMBOL_POINT)
                      * (double)SymbolInfoInteger(symbol, SYMBOL_TRADE_STOPS_LEVEL)
                      * 2;
+
+   if (sl <= 0 || tp <= 0)
+   {
+      Print("SmartFX MANUAL: SKIPPED — zero SL/TP SL:", sl, " TP:", tp);
+      MarkForceDone(fqId); return;
+   }
    bool slTpValid = true;
-   if (dir == "BUY"  && (sl <= 0 || sl >= mbid || tp <= 0 || tp <= mbid)) slTpValid = false;
-   if (dir == "SELL" && (sl <= 0 || sl <= mbid || tp <= 0 || tp >= mbid)) slTpValid = false;
+   if (dir == "BUY"  && (sl >= mAsk || tp <= mAsk)) slTpValid = false;
+   if (dir == "SELL" && (sl <= mBid || tp >= mBid)) slTpValid = false;
    if (MathAbs(sl - tp) < mMinStop) slTpValid = false;
    if (!slTpValid)
    {
       Print("SmartFX MANUAL: SKIPPED — invalid stops SL:", DoubleToString(sl,5),
-            " TP:", DoubleToString(tp,5), " bid:", DoubleToString(mbid,5));
+            " TP:", DoubleToString(tp,5), " ask:", DoubleToString(mAsk,5),
+            " bid:", DoubleToString(mBid,5));
+      MarkForceDone(fqId);
       return;
    }
 
    bool placed = false;
    if (dir == "BUY")  placed = g_trade.Buy (lots, symbol, 0, sl, tp, "SmartFX-Manual #" + sigId);
    if (dir == "SELL") placed = g_trade.Sell(lots, symbol, 0, sl, tp, "SmartFX-Manual #" + sigId);
+
+   // Always mark the queue item done so it doesn't loop
+   MarkForceDone(fqId);
 
    if (placed)
    {
