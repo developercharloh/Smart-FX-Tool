@@ -6,7 +6,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://smart-fx-tool.replit.app/api/:path*"
+      "destination": "https://fast-fx-import--sharozy03.replit.app/api/:path*"
     },
     {
       "source": "/((?!api/).*)",
