@@ -3,7 +3,7 @@ import { logger } from "./lib/logger";
 import { startAutoScanner, startPriceMonitor } from "./routes/signals";
 import { pool } from "@workspace/db";
 
-/** Ensure all required tables exist — runs on every startup, safe to re-run */
+/** Ensure all required tables and columns exist — safe to re-run on every startup */
 async function ensureSchema() {
   const client = await pool.connect();
   try {
@@ -26,11 +26,14 @@ async function ensureSchema() {
         status         TEXT NOT NULL DEFAULT 'PENDING',
         created_at     TIMESTAMP NOT NULL DEFAULT NOW()
       );
-      -- Add PENDING to the status enum if it doesn't exist yet
+
+      -- Add PENDING to signal_status enum if it exists as a type
       DO $$ BEGIN
         ALTER TYPE signal_status ADD VALUE IF NOT EXISTS 'PENDING';
-      EXCEPTION WHEN duplicate_object THEN NULL;
+      EXCEPTION WHEN undefined_object THEN NULL;
+               WHEN duplicate_object  THEN NULL;
       END $$;
+
       CREATE TABLE IF NOT EXISTS ea_balances (
         login          TEXT PRIMARY KEY,
         balance        REAL NOT NULL DEFAULT 0,
@@ -40,12 +43,14 @@ async function ensureSchema() {
         account_type   TEXT NOT NULL DEFAULT 'demo',
         reported_at    TIMESTAMP NOT NULL DEFAULT NOW()
       );
+
       CREATE TABLE IF NOT EXISTS access_keys (
         id             SERIAL PRIMARY KEY,
         key            TEXT NOT NULL UNIQUE,
         label          TEXT,
         created_at     TIMESTAMP NOT NULL DEFAULT NOW()
       );
+
       CREATE TABLE IF NOT EXISTS force_queue (
         id             TEXT PRIMARY KEY,
         pair           TEXT NOT NULL,
@@ -58,6 +63,47 @@ async function ensureSchema() {
         timeframe      TEXT NOT NULL DEFAULT 'H1',
         status         TEXT NOT NULL DEFAULT 'PENDING',
         created_at     TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS ea_settings (
+        id                   INTEGER PRIMARY KEY DEFAULT 1,
+        daily_profit_target  REAL NOT NULL DEFAULT 0,
+        daily_loss_limit     REAL NOT NULL DEFAULT 0,
+        lot_size             REAL NOT NULL DEFAULT 0.01,
+        min_confidence       INTEGER NOT NULL DEFAULT 80,
+        min_profit_close     REAL NOT NULL DEFAULT 0,
+        halted               BOOLEAN NOT NULL DEFAULT FALSE,
+        risk_percent         REAL NOT NULL DEFAULT 1.0,
+        max_open_trades      INTEGER NOT NULL DEFAULT 3,
+        max_spread_pips      REAL NOT NULL DEFAULT 3.0,
+        updated_at           TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+
+      -- Add new columns to ea_settings if missing (safe on existing tables)
+      ALTER TABLE ea_settings ADD COLUMN IF NOT EXISTS halted           BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE ea_settings ADD COLUMN IF NOT EXISTS risk_percent     REAL NOT NULL DEFAULT 1.0;
+      ALTER TABLE ea_settings ADD COLUMN IF NOT EXISTS max_open_trades  INTEGER NOT NULL DEFAULT 3;
+      ALTER TABLE ea_settings ADD COLUMN IF NOT EXISTS max_spread_pips  REAL NOT NULL DEFAULT 3.0;
+
+      -- Persistent EA trade journal (survives server restarts)
+      CREATE TABLE IF NOT EXISTS ea_trades (
+        id          TEXT PRIMARY KEY,
+        ticket      TEXT NOT NULL,
+        login       TEXT NOT NULL DEFAULT '',
+        symbol      TEXT NOT NULL,
+        direction   TEXT NOT NULL,
+        lots        REAL NOT NULL DEFAULT 0.01,
+        open_price  REAL NOT NULL DEFAULT 0,
+        close_price REAL,
+        sl          REAL NOT NULL DEFAULT 0,
+        tp          REAL NOT NULL DEFAULT 0,
+        signal_id   TEXT NOT NULL DEFAULT '',
+        confidence  INTEGER NOT NULL DEFAULT 0,
+        timeframe   TEXT NOT NULL DEFAULT '',
+        profit      REAL,
+        status      TEXT NOT NULL DEFAULT 'OPEN',
+        opened_at   BIGINT NOT NULL,
+        closed_at   BIGINT
       );
     `);
     logger.info("Schema ensured");

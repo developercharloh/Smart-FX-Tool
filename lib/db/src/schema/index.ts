@@ -4,3 +4,4 @@ export * from "./mt5Executions";
 export * from "./eaBalances";
 export * from "./forceQueue";
 export * from "./eaSettings";
+export * from "./eaTrades";
