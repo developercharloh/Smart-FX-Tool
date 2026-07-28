@@ -1779,86 +1779,63 @@ router.post("/admin/purge-synthetic", async (_req, res) => {
 // SERVER-SIDE AUTO SCANNER  (runs every 5 min without browser)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function startAutoScanner() {
-  const SCAN_INTERVAL_MS  = 2 * 60 * 1000;   // every 2 minutes
-  const MIN_CONFIDENCE    = 25;
-  const EXPIRE_AFTER_HRS  = 24;
-  // M15 only for execution — H1/H4/D1/W1 are used internally by generateAnalysis
-  // for multi-timeframe trend confirmation (MTF filter) but not saved as separate signals.
-  const SCAN_TIMEFRAMES   = ["M15"];
+// ── Scanner constants (module-level so runOneScan can use them) ──────────────
+const SCAN_INTERVAL_MS  = 2 * 60 * 1000;
+const SCANNER_MIN_CONF  = 25;
+const SCANNER_EXPIRE_HRS = 24;
+const SCAN_TIMEFRAMES   = ["M15"];
 
-  async function runScan() {
+/** Run one full scan cycle — safe to call from a cron endpoint or on startup */
+export async function runOneScan() {
     try {
       const marketStatus = getMarketStatus();
       const prices       = await getLivePrices();
 
-      // ── Cleanup steps: each wrapped independently so a DB hiccup doesn't abort the scan ──
-
-      // Hard-delete EXPIRED signals (keep DB clean)
+      // ── Cleanup ───────────────────────────────────────────────────────────
       try {
         await db.delete(signalsTable).where(eq(signalsTable.status, "EXPIRED"));
       } catch (e) {
-        console.warn("[autoScanner] cleanup-expired failed (non-fatal):", (e as Error).message);
+        console.warn("[autoScanner] cleanup-expired failed:", (e as Error).message);
       }
-
-      // Hard-delete stale ACTIVE signals past expiry window
       try {
-        const cutoffTime = new Date(Date.now() - EXPIRE_AFTER_HRS * 3_600_000);
-        const active = await db.select().from(signalsTable)
-          .where(eq(signalsTable.status, "ACTIVE"));
+        const cutoffTime = new Date(Date.now() - SCANNER_EXPIRE_HRS * 3_600_000);
+        const active = await db.select().from(signalsTable).where(eq(signalsTable.status, "ACTIVE"));
         for (const sig of active) {
-          if (new Date(sig.createdAt!) < cutoffTime) {
+          if (new Date(sig.createdAt!) < cutoffTime)
             await db.delete(signalsTable).where(eq(signalsTable.id, sig.id)).catch(() => {});
-          }
         }
       } catch (e) {
-        console.warn("[autoScanner] cleanup-stale failed (non-fatal):", (e as Error).message);
+        console.warn("[autoScanner] cleanup-stale failed:", (e as Error).message);
       }
-
-      // Hard-delete any lingering synthetic pair signals
       try {
         const SYNTHETIC_PAIRS = ["R_10","R_25","R_50","R_75","R_100",
           "1HZ10V","1HZ25V","1HZ50V","1HZ75V","1HZ100V",
           "BOOM500","BOOM1000","CRASH500","CRASH1000",
-          "JD10","JD25","JD50","JD75","JD100",
-          "GBPAUD","AUDNZD"];
-        for (const sp of SYNTHETIC_PAIRS) {
+          "JD10","JD25","JD50","JD75","JD100","GBPAUD","AUDNZD"];
+        for (const sp of SYNTHETIC_PAIRS)
           await db.delete(signalsTable).where(eq(signalsTable.pair, sp)).catch(() => {});
-        }
       } catch (e) {
-        console.warn("[autoScanner] cleanup-synthetics failed (non-fatal):", (e as Error).message);
+        console.warn("[autoScanner] cleanup-synthetics failed:", (e as Error).message);
       }
-
-      // Dedup: keep only the newest signal per pair|TF|direction
       try {
         const allActive = await db.select().from(signalsTable)
-          .where(eq(signalsTable.status, "ACTIVE"))
-          .orderBy(desc(signalsTable.createdAt));
+          .where(eq(signalsTable.status, "ACTIVE")).orderBy(desc(signalsTable.createdAt));
         const seenKeys = new Set<string>();
         for (const sig of allActive) {
           const key = `${sig.pair}|${sig.timeframe}|${sig.signal}`;
-          if (seenKeys.has(key)) {
+          if (seenKeys.has(key))
             await db.delete(signalsTable).where(eq(signalsTable.id, sig.id)).catch(() => {});
-          } else {
-            seenKeys.add(key);
-          }
+          else seenKeys.add(key);
         }
       } catch (e) {
-        console.warn("[autoScanner] dedup failed (non-fatal):", (e as Error).message);
+        console.warn("[autoScanner] dedup failed:", (e as Error).message);
       }
 
-      // ── Only scan pairs currently open ───────────────────────────────────
+      // ── Scan ──────────────────────────────────────────────────────────────
       const openPairs = SCANNER_DEFAULT_PAIRS.filter(p => isPairTradeable(p, marketStatus));
-      if (openPairs.length === 0) {
-        console.log("[autoScanner] Market closed — skipping scan");
-        return;
-      }
+      if (openPairs.length === 0) { console.log("[autoScanner] Market closed"); return; }
 
-      const tasks = openPairs.flatMap(pair =>
-        SCAN_TIMEFRAMES.map(tf => ({ pair, tf }))
-      );
-
-      // Run max 6 analyses concurrently (Yahoo Finance handles this fine)
+      const tasks = openPairs.flatMap(pair => SCAN_TIMEFRAMES.map(tf => ({ pair, tf })));
       const CONCURRENCY = 6;
       const results: PromiseSettledResult<any>[] = [];
       for (let i = 0; i < tasks.length; i += CONCURRENCY) {
@@ -1871,66 +1848,48 @@ export function startAutoScanner() {
         );
         results.push(...batchResults);
       }
-      const settled = results;
 
-      const highConf = settled
+      const highConf = results
         .filter((r): r is PromiseFulfilledResult<any> => r.status === "fulfilled")
         .map(r => r.value)
-        .filter(a => a.signal !== "NEUTRAL" && a.confidenceScore >= MIN_CONFIDENCE)
+        .filter(a => a.signal !== "NEUTRAL" && a.confidenceScore >= SCANNER_MIN_CONF)
         .sort((a, b) => b.confidenceScore - a.confidenceScore)
-        .slice(0, 15); // cap at 15 per cycle
+        .slice(0, 15);
 
-      // Dedup: skip pairs that already have a PENDING or ACTIVE signal in the same direction
       const existingLive = await db.select().from(signalsTable)
         .where(sql`${signalsTable.status} IN ('PENDING', 'ACTIVE')`);
-      const liveKeys = new Set(
-        existingLive.map(s => `${s.pair}|${s.timeframe}|${s.signal}`)
-      );
+      const liveKeys = new Set(existingLive.map(s => `${s.pair}|${s.timeframe}|${s.signal}`));
 
-      let saved_count = 0;
-      let blocked_reentry = 0;
+      let saved_count = 0, blocked_reentry = 0;
       for (const sig of highConf) {
         const key = `${sig.pair}|${sig.timeframe}|${sig.signal}`;
-        if (liveKeys.has(key)) continue; // already watching/executing this signal
-
-        // Re-entry guard: block if same pair/direction traded recently with no other trades in between
-        if (!canGenerateNewSignal(sig.pair, sig.signal, sig.entry)) {
-          blocked_reentry++;
-          continue;
-        }
-
+        if (liveKeys.has(key)) continue;
+        if (!canGenerateNewSignal(sig.pair, sig.signal, sig.entry)) { blocked_reentry++; continue; }
         const [saved] = await db.insert(signalsTable).values({
-          pair:            sig.pair,
-          signal:          sig.signal,
-          timeframe:       sig.timeframe,
-          entry:           sig.entry,
-          stopLoss:        sig.stopLoss,
-          takeProfit:      sig.takeProfit,
-          confidenceScore: sig.confidenceScore,
-          reasons:         sig.reasons,
-          structureType:   sig.structureType,
-          trend:           sig.trend,
+          pair: sig.pair, signal: sig.signal, timeframe: sig.timeframe,
+          entry: sig.entry, stopLoss: sig.stopLoss, takeProfit: sig.takeProfit,
+          confidenceScore: sig.confidenceScore, reasons: sig.reasons,
+          structureType: sig.structureType, trend: sig.trend,
           riskRewardRatio: sig.riskRewardRatio,
-          status:          "PENDING" as any, // waits for price to hit entry before EA picks it up
+          status: "ACTIVE" as any,
         } as any).returning();
         sendNotifications(saved).catch(() => {});
-        liveKeys.add(key); // prevent dupes within the same batch
+        liveKeys.add(key);
         saved_count++;
       }
-
       console.log(
-        `[autoScanner] Scanned ${openPairs.length} pairs × ${SCAN_TIMEFRAMES.length} TFs` +
-        ` → ${saved_count} new PENDING signals` +
+        `[autoScanner] Scanned ${openPairs.length} pairs → ${saved_count} new signals` +
         ` (${highConf.length - saved_count - blocked_reentry} dupes, ${blocked_reentry} re-entry blocked)`
       );
     } catch (err) {
       console.error("[autoScanner] Error:", err);
     }
-  }
+}
 
+export function startAutoScanner() {
   // Run immediately on startup, then every 2 minutes
-  runScan();
-  setInterval(runScan, SCAN_INTERVAL_MS);
+  runOneScan();
+  setInterval(runOneScan, SCAN_INTERVAL_MS);
   console.log(`[autoScanner] Started — scanning every ${SCAN_INTERVAL_MS / 60_000} min`);
 }
 
@@ -1942,5 +1901,15 @@ export function startAutoScanner() {
 export function startPriceMonitor() {
   console.log("[priceMonitor] Disabled — signals are ACTIVE immediately on generation, no entry-wait needed.");
 }
+
+// ── POST /api/signals/scanner/trigger — called by Vercel Cron every 2 min ───
+router.post("/scanner/trigger", async (_req, res) => {
+  try {
+    await runOneScan();
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 export default router;
