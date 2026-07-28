@@ -406,6 +406,14 @@ void FetchAndTrade()
 //+------------------------------------------------------------------+
 void ProcessForceQueue()
 {
+   // ── HARD RULE: one position at a time (manual trades too) ───────
+   if (CountMyPositions() > 0)
+   {
+      // Mark the queued item done so it doesn't pile up, then bail
+      // Actually we just bail — item stays pending until position closes
+      return;
+   }
+
    string json = HttpGet(InpApiUrl + "/api/ea/force-queue");
    if (json == "" || json == "[]")      return;
    if (StringFind(json, "\"id\"") < 0) return;
@@ -433,8 +441,21 @@ void ProcessForceQueue()
    if (symbol == "") { Print("SmartFX MANUAL: Symbol not found [", pair, "]"); return; }
 
    if (lots <= 0) lots = LotSize();
+   double requestedLots = lots;
    lots = NormalizeLots(symbol, lots);
    if (lots <= 0) return;
+
+   // ── Broker minimum sanity check ─────────────────────────────────
+   // Some Deriv instruments (e.g. XRPUSD) have a minimum of 500 units.
+   // If normalised lots are more than 50× what was requested, the broker
+   // minimum is far larger than intended — skip to avoid oversized trades.
+   if (lots > requestedLots * 50)
+   {
+      Print("SmartFX MANUAL: SKIPPED — broker minimum (", DoubleToString(lots, 2),
+            " lots) is far larger than requested (", DoubleToString(requestedLots, 2),
+            "). Use a forex pair instead.");
+      return;
+   }
 
    bool placed = false;
    if (dir == "BUY")  placed = g_trade.Buy (lots, symbol, 0, sl, tp, "SmartFX-Manual #" + sigId);

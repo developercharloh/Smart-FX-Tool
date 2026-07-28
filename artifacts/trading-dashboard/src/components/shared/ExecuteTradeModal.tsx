@@ -9,7 +9,7 @@ import { Signal } from "@workspace/api-client-react";
 
 const BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
 
-const LOT_PRESETS = ["0.01", "0.05", "0.10", "0.20"];
+const LOT_OPTIONS = ["0.01","0.02","0.03","0.05","0.10","0.20","0.50","1.00","2.00"];
 
 interface Props {
   signal: Signal;
@@ -133,27 +133,34 @@ export function ExecuteTradeModal({ signal, onClose }: Props) {
             </div>
           </div>
 
-          {/* ── Lot size — smallest default, tap to change ── */}
+          {/* ── Lot size dropdown ── */}
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Lot Size</span>
-              <span className="text-xs font-mono font-bold text-cyan-400">{lotSize} lots</span>
-            </div>
-            <div className="grid grid-cols-4 gap-2">
-              {LOT_PRESETS.map(preset => (
-                <button
-                  key={preset}
-                  onClick={() => setLotSize(preset)}
-                  className="py-2 rounded-lg text-xs font-mono font-bold transition-all"
-                  style={lotSize === preset
-                    ? { background: "rgba(0,229,255,0.15)", border: "1px solid rgba(0,229,255,0.5)", color: "#00e5ff" }
-                    : { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#94a3b8" }}
-                >
-                  {preset}
-                </button>
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-widest block mb-1.5">
+              Lot Size
+            </span>
+            <select
+              value={lotSize}
+              onChange={e => setLotSize(e.target.value)}
+              className="w-full rounded-[10px] px-3 py-2.5 text-sm font-semibold text-white outline-none transition-all appearance-none cursor-pointer"
+              style={{
+                background: "rgba(6,12,22,0.9)",
+                border: "1px solid rgba(0,229,255,0.2)",
+                boxShadow: "inset 0 1px 3px rgba(0,0,0,0.4)",
+                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`,
+                backgroundRepeat: "no-repeat",
+                backgroundPosition: "right 12px center",
+                paddingRight: "36px",
+              }}
+            >
+              {LOT_OPTIONS.map(v => (
+                <option key={v} value={v} style={{ background: "#0a0f1e" }}>
+                  {v} lots{v === "0.01" ? " (minimum — recommended)" : ""}
+                </option>
               ))}
-            </div>
-            <p className="text-[10px] text-slate-700 mt-1.5">0.01 = minimum lot (recommended for demo)</p>
+            </select>
+            <p className="text-[10px] text-slate-600 mt-1.5 leading-relaxed">
+              Forex pairs only — crypto pairs on Deriv have large broker minimums.
+            </p>
           </div>
 
           {/* ── EA connection status ── */}
