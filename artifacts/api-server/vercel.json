@@ -1,8 +1,9 @@
 {
   "version": 2,
-  "installCommand": "cd ../../ && pnpm install --frozen-lockfile && pnpm --filter @workspace/db run build",
-  "rewrites": [{ "source": "/(.*)", "destination": "/api/index" }],
+  "installCommand": "cd ../../ && pnpm install --frozen-lockfile",
+  "buildCommand": "cd ../../ && pnpm --filter @workspace/db run build && pnpm --filter @workspace/api-server run build:serverless",
+  "rewrites": [{ "source": "/(.*)", "destination": "/api/serverless" }],
   "functions": {
-    "api/index.ts": { "maxDuration": 60, "memory": 512 }
+    "api/serverless.js": { "maxDuration": 60, "memory": 512 }
   }
 }
