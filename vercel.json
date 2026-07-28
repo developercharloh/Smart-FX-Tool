@@ -6,7 +6,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://smart-fx-tool-api-server-mrcharlohfx-6505s-projects.vercel.app/api/:path*"
+      "destination": "https://fast-fx-import--sharozy03.replit.app/api/:path*"
     },
     {
       "source": "/((?!api/).*)",
