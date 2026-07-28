@@ -16,16 +16,17 @@
 //  4. Drag EA onto any chart. Configure inputs then click OK.
 //  5. Experts log tab should show "SmartFX EA v4.0 started".
 //
-//  WHAT IT DOES (v4.0 — Real-Money Production Flow)
+//  WHAT IT DOES (v4.1 — Queue-Based Execution)
 //  ─────────────────────────────────────────────────
-//  • Signals are PENDING until price touches the entry (server-side).
-//    EA only ever sees ACTIVE signals — price has already arrived.
-//    All entries are MARKET ORDERS (no more limit order delays).
+//  • Signals are ACTIVE the moment they are generated — no waiting
+//    for price to touch a pending entry level.  The EA executes the
+//    highest-confidence queued signal at MARKET immediately.
 //
-//  • Sequential multi-trade execution:
-//    EA reports open_count on every poll.  Server controls the cap.
-//    After one trade opens, EA keeps polling and opens the next
-//    signal immediately — until maxOpenTrades is reached.
+//  • ONE trade at a time (hard rule):
+//    If any SmartFX position is open, both FetchAndTrade() and
+//    ProcessForceQueue() exit immediately without touching anything.
+//    The moment that trade closes (SL / TP / MinProfitClose / manual)
+//    the next poll (≤10 s) fires the next queued signal automatically.
 //
 //  • Kill switch: server returns {"halted":true} → EA pauses entirely.
 //    Resume from dashboard or MT5 Setup → EA Settings → Kill Switch.
@@ -40,21 +41,19 @@
 //  • Daily loss circuit breaker enforced server-side.
 //    EA also enforces locally as a second safety layer.
 //
-//  CHANGELOG v4.0
+//  CHANGELOG v4.1
 //  ──────────────
-//  • Market orders instead of limit orders (entry already hit)
-//  • Sequential execution: open_count sent on every poll
-//  • Risk-based lots from signal response ("lots" field)
-//  • Kill switch: halted=true from server stops all activity
-//  • Spread reported on every signal poll
-//  • Balance sent on every signal poll for server lot calc
-//  • Trades persisted to DB on server (survive restarts)
-//  • maxOpenTrades read from settings
-//  • Version bump to 4.0
+//  • ONE trade at a time — hard guard in FetchAndTrade + ProcessForceQueue
+//  • Broker lot sanity check — skips if broker min > 50× requested lots
+//  • SL/TP validated before every order (rejects collapsed/invalid stops)
+//  • JPY pair SL/TP collapse fix (min pip distance enforced server-side)
+//  • entry = currentPrice — honest R:R and lot sizing for market orders
+//  • Manual Execute button also obeys 1-trade rule
+//  • maxOpenTrades default changed to 1
 //
 //+------------------------------------------------------------------+
 #property copyright "SmartFX AI"
-#property version   "4.00"
+#property version   "4.10"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -85,7 +84,7 @@ double   g_setLossLimit      = 0;
 double   g_setLotSize        = 0;
 int      g_setMinConf        = 0;
 double   g_setMinProfitClose = 0;
-int      g_setMaxOpenTrades  = 3;    // server-controlled cap
+int      g_setMaxOpenTrades  = 1;    // one trade at a time (server-controlled)
 
 //── Broker symbol resolution table ──────────────────────────────────
 string SYN_KEY[] = {
@@ -111,7 +110,7 @@ int    MinConf()        { return (g_setMinConf  >= 1)    ? g_setMinConf  : InpMi
 double ProfitTarget()   { return g_setProfitTarget;   }
 double LossLimit()      { return g_setLossLimit;      }
 double MinProfitClose() { return g_setMinProfitClose; }
-int    MaxOpenTrades()  { return (g_setMaxOpenTrades >= 1) ? g_setMaxOpenTrades : 3; }
+int    MaxOpenTrades()  { return (g_setMaxOpenTrades >= 1) ? g_setMaxOpenTrades : 1; }
 
 //+------------------------------------------------------------------+
 //| Count positions belonging to this EA                             |
@@ -397,7 +396,7 @@ void FetchAndTrade()
          " Lots:", DoubleToString(lots, 2),
          " (", openCount, "/", MaxOpenTrades(), " open)");
 
-   // ── Execute at MARKET — entry is already hit (signal was PENDING→ACTIVE) ──
+   // ── Execute at MARKET — signal is immediately ACTIVE on generation ──────
    bool placed = false;
    if (dir == "BUY")
       placed = g_trade.Buy (lots, symbol, 0, sl, tp, "SmartFX #" + sigId);
