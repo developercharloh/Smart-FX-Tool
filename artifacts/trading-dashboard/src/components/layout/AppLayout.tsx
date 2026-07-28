@@ -1,18 +1,27 @@
 import { ReactNode } from "react";
-import { TopNav } from "./TopNav";
+import { Sidebar } from "./Sidebar";
+import { TopBar } from "./TopBar";
 
 export function AppLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="flex flex-col h-screen bg-background text-foreground selection:bg-primary/30 overflow-hidden">
-      <TopNav />
-      <main className="flex-1 flex flex-col overflow-hidden relative">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-10%,rgba(0,255,255,0.035),rgba(0,0,0,0))] pointer-events-none" />
-        <div className="flex-1 overflow-y-auto z-10 relative">
-          <div className="container mx-auto p-6 md:p-8 max-w-[1400px]">
+    <div className="flex h-screen bg-background text-foreground overflow-hidden">
+      {/* Fixed sidebar */}
+      <Sidebar />
+
+      {/* Right column: slim top bar + scrollable page */}
+      <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+        <TopBar />
+        <main className="flex-1 overflow-y-auto relative">
+          {/* Subtle top-of-page radial glow */}
+          <div
+            className="pointer-events-none absolute inset-x-0 top-0 h-64 z-0"
+            style={{ background: "radial-gradient(ellipse 80% 40% at 50% 0%, rgba(59,130,246,0.06) 0%, transparent 100%)" }}
+          />
+          <div className="relative z-10 container mx-auto p-6 md:p-8 max-w-[1400px]">
             {children}
           </div>
-        </div>
-      </main>
+        </main>
+      </div>
     </div>
   );
 }
