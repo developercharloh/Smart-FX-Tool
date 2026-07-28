@@ -12,6 +12,65 @@ import {
 const router = Router();
 
 // ─────────────────────────────────────────────────────────────────────────────
+// RE-ENTRY TRACKER
+// Prevents the EA from jumping straight back into the same pair/direction after
+// a trade closes. Resets on server restart (acceptable — short-lived state).
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface ReEntryRecord {
+  lastEntryPrice: number;
+  lastExecutedAt: number;
+  otherTradesAfter: number; // # of OTHER pair executions since this one
+}
+const _reEntryMap = new Map<string, ReEntryRecord>(); // key: "PAIR|DIRECTION"
+
+/** Called by ea.ts when the EA opens a new trade */
+export function recordEAExecution(pair: string, direction: string, openPrice: number) {
+  const key = `${pair}|${direction}`;
+  // Bump "other trades" counter for every OTHER pair already tracked
+  for (const [k, v] of _reEntryMap) {
+    if (k !== key) v.otherTradesAfter++;
+  }
+  _reEntryMap.set(key, {
+    lastEntryPrice: openPrice,
+    lastExecutedAt: Date.now(),
+    otherTradesAfter: 0,
+  });
+  console.log(`[reEntry] Recorded execution: ${key} @ ${openPrice}`);
+}
+
+/** Returns true if a new PENDING signal for this pair/direction is allowed */
+function canGenerateNewSignal(pair: string, direction: string, newEntry: number): boolean {
+  const key = `${pair}|${direction}`;
+  const rec = _reEntryMap.get(key);
+  if (!rec) return true; // never traded this pair — always allow
+  if (rec.otherTradesAfter < 1) return false; // must trade at least one other pair first
+  return Math.abs(newEntry - rec.lastEntryPrice) >= getMinEntryDiff(pair); // must be a new price level
+}
+
+/** Minimum price difference to count as a "new" entry point */
+function getMinEntryDiff(pair: string): number {
+  if (pair === "XAUUSD") return 2.0;
+  if (pair === "XAGUSD") return 0.20;
+  if (pair.includes("JPY")) return 0.20;
+  if (pair === "BTCUSD") return 200;
+  if (pair === "ETHUSD") return 20;
+  if (pair === "XRPUSD") return 0.010;
+  return 0.00200; // Forex: 20 pips
+}
+
+/** How close live price must be to the signal entry to trigger activation */
+function getEntryTolerance(pair: string): number {
+  if (pair === "XAUUSD") return 0.50;
+  if (pair === "XAGUSD") return 0.05;
+  if (pair.includes("JPY")) return 0.050;
+  if (pair === "BTCUSD") return 50;
+  if (pair === "ETHUSD") return 5;
+  if (pair === "XRPUSD") return 0.005;
+  return 0.00050; // Forex: 5 pips
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // TYPES
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1427,9 +1486,18 @@ async function sendNotifications(signal: any) {
 router.get("/", async (req, res) => {
   const parsed = ListSignalsQueryParams.safeParse(req.query);
   if (!parsed.success) { res.status(400).json({ error: "Invalid query parameters" }); return; }
-  const { pair, signal, timeframe } = parsed.data;
-  // Only return live (ACTIVE) signals — expired ones are removed from the feed entirely
-  const conditions: any[] = [eq(signalsTable.status, "ACTIVE")];
+  const { pair, signal, timeframe, status: statusFilter } = parsed.data as any;
+
+  // Status filter: PENDING = watching for entry, ACTIVE = entry hit (EA executing)
+  // Default: return both so the dashboard can show both tabs from one request
+  const conditions: any[] = [];
+  if (statusFilter === "ACTIVE") {
+    conditions.push(eq(signalsTable.status, "ACTIVE"));
+  } else if (statusFilter === "PENDING") {
+    conditions.push(sql`${signalsTable.status} = 'PENDING'`);
+  } else {
+    conditions.push(sql`${signalsTable.status} IN ('PENDING', 'ACTIVE')`);
+  }
   if (pair)      conditions.push(eq(signalsTable.pair, pair));
   if (signal)    conditions.push(eq(signalsTable.signal, signal as "BUY" | "SELL"));
   if (timeframe) conditions.push(eq(signalsTable.timeframe, timeframe));
@@ -1707,7 +1775,9 @@ export function startAutoScanner() {
   const SCAN_INTERVAL_MS  = 2 * 60 * 1000;   // every 2 minutes
   const MIN_CONFIDENCE    = 25;
   const EXPIRE_AFTER_HRS  = 24;
-  const SCAN_TIMEFRAMES   = ["M15", "H1", "H4"];
+  // M15 only for execution — H1/H4/D1/W1 are used internally by generateAnalysis
+  // for multi-timeframe trend confirmation (MTF filter) but not saved as separate signals.
+  const SCAN_TIMEFRAMES   = ["M15"];
 
   async function runScan() {
     try {
@@ -1802,17 +1872,25 @@ export function startAutoScanner() {
         .sort((a, b) => b.confidenceScore - a.confidenceScore)
         .slice(0, 15); // cap at 15 per cycle
 
-      // Dedup: skip pairs that already have an ACTIVE signal in the same direction
-      const existingActive = await db.select().from(signalsTable)
-        .where(eq(signalsTable.status, "ACTIVE"));
-      const activeKeys = new Set(
-        existingActive.map(s => `${s.pair}|${s.timeframe}|${s.signal}`)
+      // Dedup: skip pairs that already have a PENDING or ACTIVE signal in the same direction
+      const existingLive = await db.select().from(signalsTable)
+        .where(sql`${signalsTable.status} IN ('PENDING', 'ACTIVE')`);
+      const liveKeys = new Set(
+        existingLive.map(s => `${s.pair}|${s.timeframe}|${s.signal}`)
       );
 
       let saved_count = 0;
+      let blocked_reentry = 0;
       for (const sig of highConf) {
         const key = `${sig.pair}|${sig.timeframe}|${sig.signal}`;
-        if (activeKeys.has(key)) continue; // already have a live signal for this pair/TF/direction
+        if (liveKeys.has(key)) continue; // already watching/executing this signal
+
+        // Re-entry guard: block if same pair/direction traded recently with no other trades in between
+        if (!canGenerateNewSignal(sig.pair, sig.signal, sig.entry)) {
+          blocked_reentry++;
+          continue;
+        }
+
         const [saved] = await db.insert(signalsTable).values({
           pair:            sig.pair,
           signal:          sig.signal,
@@ -1825,26 +1903,76 @@ export function startAutoScanner() {
           structureType:   sig.structureType,
           trend:           sig.trend,
           riskRewardRatio: sig.riskRewardRatio,
-          status:          "ACTIVE",
+          status:          "PENDING" as any, // waits for price to hit entry before EA picks it up
         } as any).returning();
         sendNotifications(saved).catch(() => {});
-        activeKeys.add(key); // prevent dupes within the same batch
+        liveKeys.add(key); // prevent dupes within the same batch
         saved_count++;
       }
 
       console.log(
         `[autoScanner] Scanned ${openPairs.length} pairs × ${SCAN_TIMEFRAMES.length} TFs` +
-        ` → ${saved_count} new signals saved (${highConf.length - saved_count} dupes skipped)`
+        ` → ${saved_count} new PENDING signals` +
+        ` (${highConf.length - saved_count - blocked_reentry} dupes, ${blocked_reentry} re-entry blocked)`
       );
     } catch (err) {
       console.error("[autoScanner] Error:", err);
     }
   }
 
-  // Run immediately on startup, then every 5 minutes
+  // Run immediately on startup, then every 2 minutes
   runScan();
   setInterval(runScan, SCAN_INTERVAL_MS);
   console.log(`[autoScanner] Started — scanning every ${SCAN_INTERVAL_MS / 60_000} min`);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PRICE MONITOR
+// Checks every 30s whether live price has touched a PENDING signal's entry.
+// When it does → flip to ACTIVE so the EA picks it up immediately.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function startPriceMonitor() {
+  const INTERVAL_MS = 30_000;
+
+  async function checkPendingEntries() {
+    try {
+      const pending = await db.select().from(signalsTable)
+        .where(sql`${signalsTable.status} = 'PENDING'`);
+      if (pending.length === 0) return;
+
+      const prices = await getLivePrices();
+      let activated = 0;
+
+      for (const sig of pending) {
+        const currentPrice = prices[sig.pair];
+        if (!currentPrice) continue;
+
+        const diff = Math.abs(currentPrice - sig.entry);
+        if (diff <= getEntryTolerance(sig.pair)) {
+          await db.update(signalsTable)
+            .set({ status: "ACTIVE" as any })
+            .where(eq(signalsTable.id, sig.id))
+            .catch(() => {});
+          console.log(
+            `[priceMonitor] ✅ Entry hit: ${sig.pair} ${sig.signal} M15` +
+            ` | live=${currentPrice} entry=${sig.entry} diff=${diff.toFixed(5)} → ACTIVE`
+          );
+          activated++;
+        }
+      }
+
+      if (activated > 0) {
+        console.log(`[priceMonitor] ${activated} signal(s) activated — EA will pick up on next poll`);
+      }
+    } catch (err) {
+      console.warn("[priceMonitor] Error (non-fatal):", (err as Error).message);
+    }
+  }
+
+  checkPendingEntries();
+  setInterval(checkPendingEntries, INTERVAL_MS);
+  console.log("[priceMonitor] Started — checking entries every 30s");
 }
 
 export default router;

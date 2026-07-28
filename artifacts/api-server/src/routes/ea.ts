@@ -8,6 +8,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { signalsTable, eaBalancesTable, forceQueueTable, eaSettingsTable } from "@workspace/db";
 import { eq, and, gte, gt, desc } from "drizzle-orm";
+import { recordEAExecution } from "./signals";
 
 const router = Router();
 
@@ -158,15 +159,19 @@ router.post("/trade", (req, res) => {
       closedAt:   status === "CLOSED" ? now : _trades[idx].closedAt,
     };
   } else {
-    // New trade
+    // New trade — record for re-entry tracking
+    const dir = direction === "BUY" ? "BUY" : "SELL";
+    const price = Number(openPrice || 0);
+    recordEAExecution(String(symbol), dir, price);
+
     _trades.unshift({
       id:         `${ticket}-${now}`,
       ticket:     String(ticket),
       login:      String(login   || ""),
       symbol:     String(symbol),
-      direction:  direction === "BUY" ? "BUY" : "SELL",
+      direction:  dir,
       lots:       Number(lots      || 0.01),
-      openPrice:  Number(openPrice || 0),
+      openPrice:  price,
       sl:         Number(sl        || 0),
       tp:         Number(tp        || 0),
       signalId:   String(signalId  || ""),

@@ -1,6 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
-import { startAutoScanner } from "./routes/signals";
+import { startAutoScanner, startPriceMonitor } from "./routes/signals";
 import { pool } from "@workspace/db";
 
 /** Ensure all required tables exist — runs on every startup, safe to re-run */
@@ -23,9 +23,14 @@ async function ensureSchema() {
         has_order_block BOOLEAN NOT NULL DEFAULT FALSE,
         has_support_resistance BOOLEAN NOT NULL DEFAULT FALSE,
         risk_reward_ratio REAL NOT NULL DEFAULT 0,
-        status         TEXT NOT NULL DEFAULT 'ACTIVE',
+        status         TEXT NOT NULL DEFAULT 'PENDING',
         created_at     TIMESTAMP NOT NULL DEFAULT NOW()
       );
+      -- Add PENDING to the status enum if it doesn't exist yet
+      DO $$ BEGIN
+        ALTER TYPE signal_status ADD VALUE IF NOT EXISTS 'PENDING';
+      EXCEPTION WHEN duplicate_object THEN NULL;
+      END $$;
       CREATE TABLE IF NOT EXISTS ea_balances (
         login          TEXT PRIMARY KEY,
         balance        REAL NOT NULL DEFAULT 0,
@@ -86,5 +91,6 @@ ensureSchema().then(() => {
 
     logger.info({ port }, "Server listening");
     startAutoScanner();
+    startPriceMonitor();
   });
 });

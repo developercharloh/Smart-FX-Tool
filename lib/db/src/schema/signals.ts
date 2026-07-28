@@ -5,7 +5,7 @@ import { z } from "zod/v4";
 export const signalTypeEnum = pgEnum("signal_type", ["BUY", "SELL"]);
 export const structureTypeEnum = pgEnum("structure_type", ["BOS", "CHOCH", "NONE"]);
 export const trendEnum = pgEnum("trend", ["BULLISH", "BEARISH", "NEUTRAL"]);
-export const signalStatusEnum = pgEnum("signal_status", ["ACTIVE", "HIT_TP", "HIT_SL", "EXPIRED"]);
+export const signalStatusEnum = pgEnum("signal_status", ["PENDING", "ACTIVE", "HIT_TP", "HIT_SL", "EXPIRED"]);
 
 export const signalsTable = pgTable("signals", {
   id: serial("id").primaryKey(),

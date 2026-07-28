@@ -43,6 +43,7 @@ export type SignalStatus = typeof SignalStatus[keyof typeof SignalStatus];
 
 
 export const SignalStatus = {
+  PENDING: 'PENDING',
   ACTIVE: 'ACTIVE',
   HIT_TP: 'HIT_TP',
   HIT_SL: 'HIT_SL',

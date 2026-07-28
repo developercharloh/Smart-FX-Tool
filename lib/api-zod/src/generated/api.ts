@@ -23,7 +23,8 @@ export const HealthCheckResponse = zod.object({
 export const ListSignalsQueryParams = zod.object({
   "pair": zod.coerce.string().optional(),
   "signal": zod.enum(['BUY', 'SELL']).optional(),
-  "timeframe": zod.coerce.string().optional()
+  "timeframe": zod.coerce.string().optional(),
+  "status": zod.enum(['PENDING', 'ACTIVE', 'HIT_TP', 'HIT_SL', 'EXPIRED']).optional(),
 })
 
 export const listSignalsResponseConfidenceScoreMin = 0;
@@ -46,7 +47,7 @@ export const ListSignalsResponseItem = zod.object({
   "hasOrderBlock": zod.boolean(),
   "hasSupportResistance": zod.boolean(),
   "riskRewardRatio": zod.number(),
-  "status": zod.enum(['ACTIVE', 'HIT_TP', 'HIT_SL', 'EXPIRED']),
+  "status": zod.enum(['PENDING', 'ACTIVE', 'HIT_TP', 'HIT_SL', 'EXPIRED']),
   "createdAt": zod.coerce.date()
 })
 export const ListSignalsResponse = zod.array(ListSignalsResponseItem)
@@ -96,7 +97,7 @@ export const CreateSignalResponse = zod.object({
   "hasOrderBlock": zod.boolean(),
   "hasSupportResistance": zod.boolean(),
   "riskRewardRatio": zod.number(),
-  "status": zod.enum(['ACTIVE', 'HIT_TP', 'HIT_SL', 'EXPIRED']),
+  "status": zod.enum(['PENDING', 'ACTIVE', 'HIT_TP', 'HIT_SL', 'EXPIRED']),
   "createdAt": zod.coerce.date()
 })
 
@@ -128,7 +129,7 @@ export const GetSignalResponse = zod.object({
   "hasOrderBlock": zod.boolean(),
   "hasSupportResistance": zod.boolean(),
   "riskRewardRatio": zod.number(),
-  "status": zod.enum(['ACTIVE', 'HIT_TP', 'HIT_SL', 'EXPIRED']),
+  "status": zod.enum(['PENDING', 'ACTIVE', 'HIT_TP', 'HIT_SL', 'EXPIRED']),
   "createdAt": zod.coerce.date()
 })
 
@@ -216,7 +217,7 @@ export const GetDashboardSummaryResponse = zod.object({
   "hasOrderBlock": zod.boolean(),
   "hasSupportResistance": zod.boolean(),
   "riskRewardRatio": zod.number(),
-  "status": zod.enum(['ACTIVE', 'HIT_TP', 'HIT_SL', 'EXPIRED']),
+  "status": zod.enum(['PENDING', 'ACTIVE', 'HIT_TP', 'HIT_SL', 'EXPIRED']),
   "createdAt": zod.coerce.date()
 }))
 })
