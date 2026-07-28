@@ -359,6 +359,13 @@ router.post("/trade", async (req, res) => {
         profit:     profit     != null ? Number(profit)     : null,
         closedAt:   now,
       }).where(eq(eaTradesTable.id, id));
+
+      // Signal results are in — delete it so it disappears from the system
+      if (signalId) {
+        await db.delete(signalsTable)
+          .where(eq(signalsTable.id, Number(signalId)))
+          .catch(() => {});
+      }
     } else {
       // New open trade — upsert so duplicate reports are safe
       await db.insert(eaTradesTable).values({
@@ -377,6 +384,13 @@ router.post("/trade", async (req, res) => {
         status:     "OPEN",
         openedAt:   now,
       }).onConflictDoNothing();
+
+      // Signal has been taken — delete it immediately so queue stays clean
+      if (signalId) {
+        await db.delete(signalsTable)
+          .where(eq(signalsTable.id, Number(signalId)))
+          .catch(() => {});
+      }
 
       // Record for re-entry tracking
       recordEAExecution(String(symbol), dir, Number(openPrice || 0));

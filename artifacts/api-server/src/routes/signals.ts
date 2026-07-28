@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { signalsTable, insertSignalSchema } from "@workspace/db";
+import { signalsTable, insertSignalSchema, eaTradesTable } from "@workspace/db";
 import { eq, desc, and, sql, inArray } from "drizzle-orm";
 import {
   ListSignalsQueryParams,
@@ -1672,41 +1672,49 @@ router.post("/resolve-pending", async (_req, res) => {
   for (const sig of active) {
     const ageHours = (now - new Date(sig.createdAt!).getTime()) / 3_600_000;
     if (ageHours < EXPIRE_AFTER_HRS) continue;
-    await db.update(signalsTable).set({ status: "EXPIRED" }).where(eq(signalsTable.id, sig.id));
+    // Delete directly — expired signals vanish completely
+    await db.delete(signalsTable).where(eq(signalsTable.id, sig.id)).catch(() => {});
     expired++;
   }
   res.json({ expired, checked: active.length });
 });
 
 router.get("/dashboard-summary", async (req, res) => {
+  // Signals in queue (ACTIVE only — executed/expired signals are deleted)
   const allSignals = await db.select().from(signalsTable).orderBy(desc(signalsTable.createdAt));
   const totalSignals  = allSignals.length;
   const activeSignals = allSignals.filter(s => s.status === "ACTIVE").length;
-  const hitTp  = allSignals.filter(s => s.status === "HIT_TP").length;
-  const hitSl  = allSignals.filter(s => s.status === "HIT_SL").length;
-  const resolved = hitTp + hitSl;
-  const winRate  = resolved > 0 ? parseFloat((hitTp / resolved).toFixed(4)) : 0;
   const avgConfidence = totalSignals > 0
     ? Math.round(allSignals.reduce((acc, s) => acc + s.confidenceScore, 0) / totalSignals) : 0;
   const buySignals  = allSignals.filter(s => s.signal === "BUY").length;
   const sellSignals = allSignals.filter(s => s.signal === "SELL").length;
-  const pairMap: Record<string, { count: number; tp: number; sl: number }> = {};
-  for (const s of allSignals) {
-    if (!pairMap[s.pair]) pairMap[s.pair] = { count: 0, tp: 0, sl: 0 };
-    pairMap[s.pair].count++;
-    if (s.status === "HIT_TP") pairMap[s.pair].tp++;
-    if (s.status === "HIT_SL") pairMap[s.pair].sl++;
+
+  // Win rate from real closed trades (signals are deleted on close, so use eaTradesTable)
+  const closedTrades = await db.select().from(eaTradesTable)
+    .where(eq(eaTradesTable.status, "CLOSED"));
+  const wins     = closedTrades.filter(t => (t.profit ?? 0) > 0).length;
+  const resolved = closedTrades.length;
+  const winRate  = resolved > 0 ? parseFloat((wins / resolved).toFixed(4)) : 0;
+
+  // Top pairs by trade count from real trade history
+  const pairMap: Record<string, { count: number; wins: number }> = {};
+  for (const t of closedTrades) {
+    if (!pairMap[t.symbol]) pairMap[t.symbol] = { count: 0, wins: 0 };
+    pairMap[t.symbol].count++;
+    if ((t.profit ?? 0) > 0) pairMap[t.symbol].wins++;
   }
   const topPairs = Object.entries(pairMap).map(([p, v]) => ({
     pair: p, count: v.count,
-    winRate: v.tp + v.sl > 0 ? parseFloat((v.tp / (v.tp + v.sl)).toFixed(4)) : 0,
+    winRate: v.count > 0 ? parseFloat((v.wins / v.count).toFixed(4)) : 0,
   })).sort((a, b) => b.count - a.count).slice(0, 5);
-  // recentActivity: ACTIVE signals only — no expired noise, no old synthetic junk
+
+  // recentActivity: ACTIVE signals in queue
   const REAL_PAIRS = new Set(["EURUSD","GBPUSD","USDJPY","AUDUSD","USDCAD","NZDUSD","USDCHF",
     "GBPJPY","EURJPY","EURGBP","XAUUSD","XAGUSD","BTCUSD","ETHUSD","XRPUSD"]);
   const recentActivity = allSignals
     .filter(s => s.status === "ACTIVE" && REAL_PAIRS.has(s.pair))
     .slice(0, 5);
+
   res.json({ totalSignals, activeSignals, winRate, avgConfidence, buySignals, sellSignals, topPairs, recentActivity });
 });
 
