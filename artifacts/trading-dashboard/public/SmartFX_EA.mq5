@@ -707,7 +707,7 @@ string ResolveSymbol(const string &pair)
 
    if (SymbolSelect(s, true) && SymbolInfoDouble(s, SYMBOL_BID) > 0) return s;
 
-   string sfx[] = {".", "+", "m", "_", "pro", "n", "ECN", "c"};
+   string sfx[] = {".", "+", "m", "mv", "micro", "_", "pro", "n", "ECN", "c"};
    for (int i = 0; i < ArraySize(sfx); i++)
    {
       string c = s + sfx[i];
