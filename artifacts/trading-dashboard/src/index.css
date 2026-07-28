@@ -168,7 +168,7 @@
 
   /* Always dark — SmartFX is a dark-only trading tool */
   :root { color-scheme: dark; }
-  html { @apply dark; }
+  html { color-scheme: dark; }
 }
 
 /* ── Scrollbar ── */
