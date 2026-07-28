@@ -500,7 +500,7 @@ async function fetchCOTData(): Promise<Map<string, COTCurrencyData>> {
       signal: AbortSignal.timeout(15000),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const rows: any[] = await res.json();
+    const rows: any[] = await res.json() as any[];
     if (!Array.isArray(rows) || rows.length === 0) throw new Error("empty COT response");
     const knownCodes = new Set(Object.values(COT_CODES));
 
