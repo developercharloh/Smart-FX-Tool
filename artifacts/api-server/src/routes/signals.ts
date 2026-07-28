@@ -1282,13 +1282,21 @@ async function generateAnalysis(pair: string, timeframe: string, basePrice: numb
   // Gold: pip = 0.1 → min 5 pips = 0.50
   // Standard forex: pip = 0.0001 → min 5 pips = 0.0005
   // Synthetics / crypto: use 0.5% of entry as floor
-  const minDist = isSynthetic || isCrypto
-    ? entry * 0.003
-    : isGold || isCommodity
-      ? 0.50
-      : isJpy
-        ? 0.05         // 5 JPY pips
-        : 0.0005;      // 5 standard pips
+  // Minimum stop distance — generous enough to survive price movement
+  // between signal generation and EA execution (typically 5-30 seconds).
+  // Crypto: 1.5% keeps stops valid even with 1-2% intrabar wicks.
+  // Gold:   $2.00 (~0.05%) — avoids collapsed stops on JPY-like decimals.
+  // JPY:    0.30 (30 pips) — safe buffer for 2-decimal pairs.
+  // Forex:  0.0010 (10 pips) — standard minimum.
+  const minDist = isCrypto
+    ? entry * 0.015          // 1.5% — BTC=$960, ETH=$28, XRP=$0.016
+    : isSynthetic
+      ? entry * 0.005        // 0.5% for synthetics
+      : isGold || isCommodity
+        ? 2.00               // $2 on gold (~0.05%)
+        : isJpy
+          ? 0.30             // 30 JPY pips
+          : 0.0010;          // 10 standard pips
 
   if (signal === "BUY") {
     // SL must be strictly below entry; TP must be strictly above entry
