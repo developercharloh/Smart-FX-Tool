@@ -1233,45 +1233,17 @@ async function generateAnalysis(pair: string, timeframe: string, basePrice: numb
   // BUY:  entry must be BELOW current price — EA waits for a pullback dip.
   //       Priority: 1) Bullish OB high  2) Bullish FVG low  3) 0.3×ATR below current
   // SELL: entry must be ABOVE current price — EA waits for a retracement rally.
-  //       Priority: 1) Bearish OB low   2) Bearish FVG high  3) 0.3×ATR above current
-  // A hard safety clamp ensures the entry is always on the correct side of market price.
-  let entryRaw: number;
-  let entrySource: string;
-
-  if (signal === "BUY") {
-    if (orderBlock?.type === "BULLISH" && orderBlock.high < currentPrice - atr * 0.05) {
-      entryRaw   = orderBlock.high;            // top of bullish OB — key support
-      entrySource = "Order Block";
-    } else if (fvg?.type === "BULLISH" && fvg.low < currentPrice - atr * 0.05) {
-      entryRaw   = fvg.low;                   // bottom of bullish FVG — fill the gap
-      entrySource = "FVG";
-    } else {
-      entryRaw   = currentPrice - atr * 0.3;  // minor pullback zone below current
-      entrySource = "ATR Pullback";
-    }
-    // Safety clamp: BUY entry must always be strictly below current price
-    if (entryRaw >= currentPrice) entryRaw = currentPrice - atr * 0.2;
-
-  } else if (signal === "SELL") {
-    if (orderBlock?.type === "BEARISH" && orderBlock.low > currentPrice + atr * 0.05) {
-      entryRaw   = orderBlock.low;            // bottom of bearish OB — key resistance
-      entrySource = "Order Block";
-    } else if (fvg?.type === "BEARISH" && fvg.high > currentPrice + atr * 0.05) {
-      entryRaw   = fvg.high;                  // top of bearish FVG — fill the gap
-      entrySource = "FVG";
-    } else {
-      entryRaw   = currentPrice + atr * 0.3;  // minor retracement zone above current
-      entrySource = "ATR Pullback";
-    }
-    // Safety clamp: SELL entry must always be strictly above current price
-    if (entryRaw <= currentPrice) entryRaw = currentPrice + atr * 0.2;
-
-  } else {
-    entryRaw   = currentPrice;
-    entrySource = "Current";
-  }
-
-  const entry = parseFloat(entryRaw.toFixed(decimals));
+  // ── Entry = current market price ────────────────────────────────────────────
+  // The EA executes at market price immediately — there is no waiting for a
+  // pending entry zone. Using currentPrice here keeps R:R display and risk-based
+  // lot sizing honest (they reflect the actual fill, not an ideal limit level).
+  // Structural OB/FVG/swing levels are still used for SL and TP placement below.
+  const entrySource = orderBlock
+    ? `${orderBlock.type} OB (SL/TP ref)`
+    : fvg
+      ? `FVG (SL/TP ref)`
+      : "Market";
+  const entry = parseFloat(currentPrice.toFixed(decimals));
 
   // ── Stop Loss + Take Profit from real structure levels ───────────────────────
   // SL: placed beyond the entry zone (OB/FVG low for BUY, high for SELL) + 1×ATR buffer
