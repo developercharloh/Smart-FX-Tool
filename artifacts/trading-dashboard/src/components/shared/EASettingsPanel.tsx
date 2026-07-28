@@ -195,14 +195,35 @@ export function EASettingsPanel() {
                     min={0} max={10} step={0.1} placeholder="e.g. 1.0"
                     accent="cyan"
                   />
-                  <SettingField
-                    label="Fallback Lot Size"
-                    hint="Used when balance is unavailable or Risk % is 0."
-                    value={settings.lotSize}
-                    onChange={v => update("lotSize", v)}
-                    min={0.01} step={0.01} placeholder="e.g. 0.01"
-                    accent="cyan"
-                  />
+                  {/* Lot Size dropdown */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-widest">
+                      Fallback Lot Size
+                    </label>
+                    <select
+                      value={settings.lotSize}
+                      onChange={e => update("lotSize", e.target.value)}
+                      className="w-full rounded-[10px] px-3 py-2.5 text-sm font-semibold text-white outline-none transition-all duration-200 appearance-none cursor-pointer"
+                      style={{
+                        background: "rgba(6,12,22,0.9)",
+                        border: "1px solid rgba(6,182,212,0.2)",
+                        boxShadow: "inset 0 1px 3px rgba(0,0,0,0.4)",
+                        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`,
+                        backgroundRepeat: "no-repeat",
+                        backgroundPosition: "right 12px center",
+                        paddingRight: "36px",
+                      }}
+                    >
+                      {[0.01, 0.02, 0.03, 0.05, 0.10, 0.20, 0.50, 1.00, 2.00].map(v => (
+                        <option key={v} value={v} style={{ background: "#0a0f1e" }}>
+                          {v.toFixed(2)} lots{v === 0.01 ? " (default)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[10px] text-slate-600 leading-relaxed">
+                      Used when balance is unavailable or Risk % is 0.
+                    </p>
+                  </div>
                   <SettingField
                     label="Max Open Trades"
                     hint="EA stops taking new signals when this many positions are open."
