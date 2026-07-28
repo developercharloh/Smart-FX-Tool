@@ -60,7 +60,7 @@ async function getSettings(): Promise<SettingsCache> {
       minConfidence:     s?.minConfidence      ?? 80,
       minProfitClose:    s?.minProfitClose     ?? 0,
       riskPercent:       (s as any)?.riskPercent    ?? 1.0,
-      maxOpenTrades:     (s as any)?.maxOpenTrades   ?? 3,
+      maxOpenTrades:     (s as any)?.maxOpenTrades   ?? 1,
       maxSpreadPips:     (s as any)?.maxSpreadPips   ?? 3.0,
       fetchedAt:         Date.now(),
     };
@@ -69,7 +69,7 @@ async function getSettings(): Promise<SettingsCache> {
     _settingsCache = {
       halted: false, dailyProfitTarget: 0, dailyLossLimit: 0,
       lotSize: 0.01, minConfidence: 80, minProfitClose: 0,
-      riskPercent: 1.0, maxOpenTrades: 3, maxSpreadPips: 3.0,
+      riskPercent: 1.0, maxOpenTrades: 1, maxSpreadPips: 3.0,
       fetchedAt: Date.now(),
     };
   }
@@ -549,7 +549,7 @@ router.get("/settings", async (_req, res) => {
       return res.json({
         dailyProfitTarget: 0, dailyLossLimit: 0, lotSize: 0.01,
         minConfidence: 80, minProfitClose: 0,
-        halted: false, riskPercent: 1.0, maxOpenTrades: 3, maxSpreadPips: 3.0,
+        halted: false, riskPercent: 1.0, maxOpenTrades: 1, maxSpreadPips: 3.0,
       });
     }
     const s = rows[0] as any;
@@ -561,7 +561,7 @@ router.get("/settings", async (_req, res) => {
       minProfitClose:    s.minProfitClose,
       halted:            s.halted    ?? false,
       riskPercent:       s.riskPercent   ?? 1.0,
-      maxOpenTrades:     s.maxOpenTrades  ?? 3,
+      maxOpenTrades:     s.maxOpenTrades  ?? 1,
       maxSpreadPips:     s.maxSpreadPips  ?? 3.0,
       updatedAt:         s.updatedAt,
     });
@@ -584,7 +584,7 @@ router.post("/settings", async (req, res) => {
       minConfidence:     Math.min(100, Math.max(1, Number(minConfidence) || 80)),
       minProfitClose:    Math.max(0, Number(minProfitClose)    || 0),
       riskPercent:       Math.min(10, Math.max(0, Number(riskPercent)   || 1.0)),
-      maxOpenTrades:     Math.max(1, Math.min(20, parseInt(String(maxOpenTrades)) || 3)),
+      maxOpenTrades:     Math.max(1, Math.min(20, parseInt(String(maxOpenTrades)) || 1)),
       maxSpreadPips:     Math.max(0, Number(maxSpreadPips)     || 3.0),
       updatedAt:         new Date(),
     };

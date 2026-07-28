@@ -293,6 +293,16 @@ void FetchAndTrade()
 {
    int openCount = CountMyPositions();
 
+   // ── HARD RULE: one position at a time ───────────────────────────
+   // Do not even poll the server if any position belonging to this EA
+   // is still open. Wait for it to close (SL, TP, or MinProfitClose),
+   // then the next timer tick will pick up the next signal.
+   if (openCount > 0)
+   {
+      RefreshComment();
+      return;
+   }
+
    // Build signal URL with production parameters
    double balance  = AccountInfoDouble(ACCOUNT_BALANCE);
    double ask      = 0, bid = 0;

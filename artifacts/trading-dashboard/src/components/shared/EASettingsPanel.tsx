@@ -33,7 +33,7 @@ const DEFAULTS: EASettings = {
   minProfitClose:    0,
   riskPercent:       1.0,
   lotSize:           0.01,
-  maxOpenTrades:     3,
+  maxOpenTrades:     1,
   maxSpreadPips:     3.0,
   halted:            false,
 };
@@ -58,7 +58,7 @@ export function EASettingsPanel() {
           minProfitClose:    d.minProfitClose     ?? 0,
           riskPercent:       d.riskPercent        ?? 1.0,
           lotSize:           d.lotSize            ?? 0.01,
-          maxOpenTrades:     d.maxOpenTrades       ?? 3,
+          maxOpenTrades:     d.maxOpenTrades       ?? 1,
           maxSpreadPips:     d.maxSpreadPips       ?? 3.0,
           halted:            d.halted             ?? false,
         });
