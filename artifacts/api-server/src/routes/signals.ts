@@ -1955,52 +1955,12 @@ export function startAutoScanner() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PRICE MONITOR
-// Checks every 30s whether live price has touched a PENDING signal's entry.
-// When it does → flip to ACTIVE so the EA picks it up immediately.
+// PRICE MONITOR — disabled (signals are now ACTIVE immediately on generation)
+// Kept as a no-op export so index.ts import doesn't break.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function startPriceMonitor() {
-  const INTERVAL_MS = 30_000;
-
-  async function checkPendingEntries() {
-    try {
-      const pending = await db.select().from(signalsTable)
-        .where(sql`${signalsTable.status} = 'PENDING'`);
-      if (pending.length === 0) return;
-
-      const prices = await getLivePrices();
-      let activated = 0;
-
-      for (const sig of pending) {
-        const currentPrice = prices[sig.pair];
-        if (!currentPrice) continue;
-
-        const diff = Math.abs(currentPrice - sig.entry);
-        if (diff <= getEntryTolerance(sig.pair)) {
-          await db.update(signalsTable)
-            .set({ status: "ACTIVE" as any })
-            .where(eq(signalsTable.id, sig.id))
-            .catch(() => {});
-          console.log(
-            `[priceMonitor] ✅ Entry hit: ${sig.pair} ${sig.signal} M15` +
-            ` | live=${currentPrice} entry=${sig.entry} diff=${diff.toFixed(5)} → ACTIVE`
-          );
-          activated++;
-        }
-      }
-
-      if (activated > 0) {
-        console.log(`[priceMonitor] ${activated} signal(s) activated — EA will pick up on next poll`);
-      }
-    } catch (err) {
-      console.warn("[priceMonitor] Error (non-fatal):", (err as Error).message);
-    }
-  }
-
-  checkPendingEntries();
-  setInterval(checkPendingEntries, INTERVAL_MS);
-  console.log("[priceMonitor] Started — checking entries every 30s");
+  console.log("[priceMonitor] Disabled — signals are ACTIVE immediately on generation, no entry-wait needed.");
 }
 
 export default router;

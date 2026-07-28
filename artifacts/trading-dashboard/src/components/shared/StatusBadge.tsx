@@ -11,8 +11,14 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
   let label = status;
 
   switch (status) {
+    case "PENDING":
+      // Legacy — treated as queued (signals are now ACTIVE immediately)
+      colorClasses = "bg-slate-500/10 text-slate-400 border-slate-500/30";
+      label = "QUEUED";
+      break;
     case SignalStatus.ACTIVE:
       colorClasses = "bg-primary/10 text-primary border-primary/20 shadow-[0_0_10px_rgba(0,255,255,0.2)]";
+      label = "READY";
       break;
     case SignalStatus.HIT_TP:
       colorClasses = "bg-emerald-500/10 text-emerald-500 border-emerald-500/20";
