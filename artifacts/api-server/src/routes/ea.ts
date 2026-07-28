@@ -118,8 +118,9 @@ function calcLots(
   }
 
   const lots = dollarRisk / dollarPerLot;
-  // Round to nearest 0.01, enforce absolute minimum
-  return Math.max(0.01, Math.round(lots * 100) / 100);
+  // Round to nearest 0.01, enforce min 0.01 and hard cap at 1.0 lot
+  // (protects against tiny SL distances producing dangerously large sizes)
+  return Math.min(1.0, Math.max(0.01, Math.round(lots * 100) / 100));
 }
 
 // ── Daily P&L circuit breaker ─────────────────────────────────────────────────
@@ -184,10 +185,12 @@ router.get("/signal", async (req, res) => {
       }
     }
 
-    // ── Query ACTIVE signals ───────────────────────────────────────────────
+    // ── Query ACTIVE M15 signals only ─────────────────────────────────────
+    // H1/H4/D1/W1 are MTF confirmation only — never executed by the EA.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const conditions: any[] = [
       eq(signalsTable.status,           "ACTIVE"),
+      eq(signalsTable.timeframe,        "M15"),
       gte(signalsTable.confidenceScore, minConf),
     ];
     if (lastId > 0) conditions.push(gt(signalsTable.id, lastId));
