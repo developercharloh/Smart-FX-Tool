@@ -496,15 +496,37 @@ router.post("/execute", async (req, res) => {
     const s = rows[0];
     if (!s) return res.status(404).json({ error: "Signal not found" });
 
+    const dir = (s.signal === "BUY" ? "BUY" : "SELL") as "BUY" | "SELL";
+    let sl = s.stopLoss;
+    let tp = s.takeProfit;
+
+    // ── Validate SL/TP before queuing — fix collapsed levels ──────────────────
+    const pair     = s.pair;
+    const entry    = s.entry;
+    const isJpy    = pair.includes("JPY");
+    const isGold   = pair === "XAUUSD";
+    const isCrypto = ["BTC","ETH","XRP","LTC","DOGE","SOL","ADA","AVAX"].some(c => pair.startsWith(c));
+    const isSyn    = ["R_","1HZ","BOOM","CRASH","JD"].some(p => pair.startsWith(p));
+    const decs     = isJpy || isGold ? 2 : isCrypto || isSyn ? 2 : 5;
+    const minDist  = isSyn || isCrypto ? entry * 0.003 : isGold ? 0.50 : isJpy ? 0.05 : 0.0005;
+
+    if (dir === "BUY") {
+      if (!sl || sl >= entry) sl = parseFloat((entry - minDist).toFixed(decs));
+      if (!tp || tp <= entry) tp = parseFloat((entry + minDist * 2).toFixed(decs));
+    } else {
+      if (!sl || sl <= entry) sl = parseFloat((entry + minDist).toFixed(decs));
+      if (!tp || tp >= entry) tp = parseFloat((entry - minDist * 2).toFixed(decs));
+    }
+
     const item = {
       id:         `fq-${Date.now()}`,
       signalId:   String(signalId),
       lotSize:    Math.max(0.01, Number(lotSize) || 0.01),
-      pair:       s.pair,
-      direction:  (s.signal === "BUY" ? "BUY" : "SELL") as "BUY" | "SELL",
-      entry:      s.entry,
-      sl:         s.stopLoss,
-      tp:         s.takeProfit,
+      pair,
+      direction:  dir,
+      entry,
+      sl,
+      tp,
       confidence: s.confidenceScore,
       timeframe:  s.timeframe,
       createdAt:  Date.now(),

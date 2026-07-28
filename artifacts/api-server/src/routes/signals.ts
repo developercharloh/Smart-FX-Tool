@@ -1305,6 +1305,34 @@ async function generateAnalysis(pair: string, timeframe: string, basePrice: numb
     takeProfit = parseFloat((entry + slAtr * 2.0).toFixed(decimals));
   }
 
+  // ── Minimum pip guard — prevents SL/TP collapsing to entry when ATR is tiny ──
+  // JPY pairs: pip = 0.01 → min 5 pips = 0.05
+  // Gold: pip = 0.1 → min 5 pips = 0.50
+  // Standard forex: pip = 0.0001 → min 5 pips = 0.0005
+  // Synthetics / crypto: use 0.5% of entry as floor
+  const minDist = isSynthetic || isCrypto
+    ? entry * 0.003
+    : isGold || isCommodity
+      ? 0.50
+      : isJpy
+        ? 0.05         // 5 JPY pips
+        : 0.0005;      // 5 standard pips
+
+  if (signal === "BUY") {
+    // SL must be strictly below entry; TP must be strictly above entry
+    if (stopLoss >= entry)  stopLoss   = parseFloat((entry - minDist).toFixed(decimals));
+    if (takeProfit <= entry) takeProfit = parseFloat((entry + minDist * 2).toFixed(decimals));
+    // Ensure minimum distance
+    if (entry - stopLoss   < minDist) stopLoss   = parseFloat((entry - minDist).toFixed(decimals));
+    if (takeProfit - entry < minDist) takeProfit = parseFloat((entry + minDist * 2).toFixed(decimals));
+  } else if (signal === "SELL") {
+    // SL must be strictly above entry; TP must be strictly below entry
+    if (stopLoss <= entry)  stopLoss   = parseFloat((entry + minDist).toFixed(decimals));
+    if (takeProfit >= entry) takeProfit = parseFloat((entry - minDist * 2).toFixed(decimals));
+    if (stopLoss - entry   < minDist) stopLoss   = parseFloat((entry + minDist).toFixed(decimals));
+    if (entry - takeProfit < minDist) takeProfit = parseFloat((entry - minDist * 2).toFixed(decimals));
+  }
+
   const tpDistance = Math.abs(takeProfit - entry);
   const slDistance = Math.abs(entry - stopLoss);
   const riskRewardRatio = parseFloat((slDistance > 0 ? tpDistance / slDistance : 2).toFixed(2));

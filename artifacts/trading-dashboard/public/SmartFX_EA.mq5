@@ -369,6 +369,27 @@ void FetchAndTrade()
    double lots    = NormalizeLots(symbol, rawLots);
    if (lots <= 0) { g_lastSignalId = sigId; return; }
 
+   // ── SL/TP sanity check — reject collapsed/invalid stops ─────────
+   double bid = SymbolInfoDouble(symbol, SYMBOL_BID);
+   double minStop = SymbolInfoDouble(symbol, SYMBOL_POINT)
+                    * (double)SymbolInfoInteger(symbol, SYMBOL_TRADE_STOPS_LEVEL)
+                    * 2;   // 2× broker minimum stop distance
+   if (dir == "BUY")
+   {
+      if (sl <= 0 || sl >= bid || tp <= 0 || tp <= bid)
+      { Print("SmartFX: SKIP signal #", sigId, " — invalid BUY stops SL:", sl, " TP:", tp, " bid:", bid);
+        g_lastSignalId = sigId; return; }
+   }
+   else
+   {
+      if (sl <= 0 || sl <= bid || tp <= 0 || tp >= bid)
+      { Print("SmartFX: SKIP signal #", sigId, " — invalid SELL stops SL:", sl, " TP:", tp, " bid:", bid);
+        g_lastSignalId = sigId; return; }
+   }
+   if (MathAbs(sl - tp) < minStop)
+   { Print("SmartFX: SKIP signal #", sigId, " — SL/TP too close or identical SL:", sl, " TP:", tp);
+     g_lastSignalId = sigId; return; }
+
    Print("SmartFX: Signal #", sigId, " | ", dir, " ", pair,
          " Entry:", DoubleToString(entry, 5),
          " SL:", DoubleToString(sl, 5), " TP:", DoubleToString(tp, 5),
@@ -446,14 +467,26 @@ void ProcessForceQueue()
    if (lots <= 0) return;
 
    // ── Broker minimum sanity check ─────────────────────────────────
-   // Some Deriv instruments (e.g. XRPUSD) have a minimum of 500 units.
-   // If normalised lots are more than 50× what was requested, the broker
-   // minimum is far larger than intended — skip to avoid oversized trades.
    if (lots > requestedLots * 50)
    {
       Print("SmartFX MANUAL: SKIPPED — broker minimum (", DoubleToString(lots, 2),
-            " lots) is far larger than requested (", DoubleToString(requestedLots, 2),
-            "). Use a forex pair instead.");
+            ") far exceeds requested (", DoubleToString(requestedLots, 2), "). Use a forex pair.");
+      return;
+   }
+
+   // ── SL/TP sanity check — reject collapsed/invalid stops ─────────
+   double mbid = SymbolInfoDouble(symbol, SYMBOL_BID);
+   double mMinStop = SymbolInfoDouble(symbol, SYMBOL_POINT)
+                     * (double)SymbolInfoInteger(symbol, SYMBOL_TRADE_STOPS_LEVEL)
+                     * 2;
+   bool slTpValid = true;
+   if (dir == "BUY"  && (sl <= 0 || sl >= mbid || tp <= 0 || tp <= mbid)) slTpValid = false;
+   if (dir == "SELL" && (sl <= 0 || sl <= mbid || tp <= 0 || tp >= mbid)) slTpValid = false;
+   if (MathAbs(sl - tp) < mMinStop) slTpValid = false;
+   if (!slTpValid)
+   {
+      Print("SmartFX MANUAL: SKIPPED — invalid stops SL:", DoubleToString(sl,5),
+            " TP:", DoubleToString(tp,5), " bid:", DoubleToString(mbid,5));
       return;
    }
 
