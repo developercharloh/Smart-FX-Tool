@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                            SmartFX_EA.mq5        |
-//|                       SmartFX AI Trading System v4.0             |
+//|                       SmartFX AI Trading System v4.2             |
 //|                       https://smart-fx-tool.site                 |
 //+------------------------------------------------------------------+
 //
@@ -14,7 +14,7 @@
 //       ✔  Allow WebRequests for listed URLs
 //       Add URL:  https://smart-fx-tool.site
 //  4. Drag EA onto any chart. Configure inputs then click OK.
-//  5. Experts log tab should show "SmartFX EA v4.0 started".
+//  5. Experts log tab should show "SmartFX EA v4.2 started".
 //
 //  WHAT IT DOES (v4.1 — Queue-Based Execution)
 //  ─────────────────────────────────────────────────
@@ -59,7 +59,7 @@
 //
 //+------------------------------------------------------------------+
 #property copyright "SmartFX AI"
-#property version   "4.10"
+#property version   "4.20"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -151,7 +151,7 @@ int OnInit()
    g_serverHalted = false;
 
    EventSetTimer(InpPollSeconds);
-   Print("SmartFX EA v4.0 started | Balance: ",
+   Print("SmartFX EA v4.2 started | Balance: ",
          DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2),
          " | API: ", InpApiUrl);
    RefreshComment();
@@ -257,7 +257,7 @@ bool CheckDailyLimits()
    }
 
    g_dailyStopped = true;
-   Comment("SmartFX v4.0 | *** STOPPED — ", reason, " ***");
+   Comment("SmartFX v4.2 | *** STOPPED — ", reason, " ***");
    return true;
 }
 
@@ -720,7 +720,7 @@ void RefreshComment()
    if (LossLimit()       > 0) ex += StringFormat(" Limit:-$%.0f", LossLimit());
    if (MaxOpenTrades()   > 0) ex += StringFormat(" MaxTrades:%d", MaxOpenTrades());
 
-   Comment("SmartFX v4.0 | ", st,
+   Comment("SmartFX v4.2 | ", st,
            " | Trades:", g_totalTrades,
            " | P&L:$", DoubleToString(pnl, 2),
            " | Lots:", DoubleToString(LotSize(), 2), ex);
