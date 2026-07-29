@@ -51,6 +51,23 @@ function pairCode(pair: string): string {
   return map[pair] ?? "eu";
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SMART FX LOGO (matches brand reference — stylised S stroke with gradient)
+// ─────────────────────────────────────────────────────────────────────────────
+function SmartFXLogo({ size = 40 }: { size?: number }) {
+  // Two separate arcs forming an S — no gradient IDs (avoids duplicate-id issues)
+  return (
+    <svg width={size} height={size} viewBox="0 0 40 40" fill="none">
+      {/* Top arc */}
+      <path d="M27,11 C27,8 23,7 19,7 C13,7 9,10 9,15 C9,19 13,20.5 19,21.5"
+        stroke="#9B8FFF" strokeWidth="4.8" strokeLinecap="round" fill="none"/>
+      {/* Bottom arc */}
+      <path d="M19,21.5 C25,22.5 31,24.5 31,29 C31,34 27,35 21,35 C15,35 11,33 11,30"
+        stroke="#4FC3F7" strokeWidth="4.8" strokeLinecap="round" fill="none"/>
+    </svg>
+  );
+}
+
 function FlagCircle({ pair, size = 44 }: { pair: string; size?: number }) {
   const code = pairCode(pair.replace("/", ""));
   if (code === "xau" || code === "btc" || code === "eth") {
@@ -305,12 +322,12 @@ function Sidebar({ demo, real }: { demo: number; real: number }) {
       {/* Logo */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 32 }}>
         <div style={{
-          width: 42, height: 42, borderRadius: 12,
-          background: "linear-gradient(135deg,#6C5CE7,#4FC3F7)",
+          width: 42, height: 42, borderRadius: 12, flexShrink: 0,
+          background: "#060818",
+          border: "1px solid rgba(108,92,231,0.45)",
           display: "flex", alignItems: "center", justifyContent: "center",
-          fontSize: 22, fontWeight: 900, color: "#fff",
-          boxShadow: "0 4px 16px rgba(108,92,231,0.45)", flexShrink: 0,
-        }}>S</div>
+          boxShadow: "0 4px 20px rgba(108,92,231,0.35)",
+        }}><SmartFXLogo size={30} /></div>
         <div>
           <div style={{ fontSize: 13, fontWeight: 900, lineHeight: 1.2 }}>
             <span style={{ color: PURPLE }}>SMART </span><span style={{ color: TEXT }}>FX</span>
@@ -385,7 +402,7 @@ function BottomNav({ active, setActive }: { active: number; setActive: (i: numbe
     { href: "/",         label: "Dashboard", icon: Home      },
     { href: "/signals",  label: "Signals",   icon: Zap       },
     { href: "/analyze",  label: "Analysis",  icon: BarChart2 },
-    { href: "/trades",   label: "Trades",    icon: Wrench    },
+    { href: "/trades",   label: "Tools",     icon: Wrench    },
     { href: "/settings", label: "Account",   icon: User      },
   ];
   return (
@@ -441,10 +458,10 @@ export default function Dashboard() {
     refetchInterval: 30_000,
   });
 
-  const { data: history = [] } = useQuery<any[]>({
-    queryKey: ["signals-history"],
-    queryFn: () => fetch(`${BASE}api/signals/history`).then(r => r.json()),
-    refetchInterval: 60_000,
+  const { data: eaTrades = [] } = useQuery<any[]>({
+    queryKey: ["ea-trades"],
+    queryFn: () => fetch(`${BASE}api/ea/trades`).then(r => r.json()),
+    refetchInterval: 30_000,
   });
 
   const { data: chartData, refetch: refetchChart } = useQuery<{
@@ -469,45 +486,53 @@ export default function Dashboard() {
   const demoBalance = demoAcc?.balance ?? 0;
   const realBalance = realAcc?.balance ?? 0;
 
-  const winRate   = summary?.winRate  ?? 0;
   const totalSigs = summary?.totalSignals ?? 0;
-  const profitPct = Math.round((summary?.winRate ?? 0) * 100 * 0.92 * 10) / 10;
 
-  // Sparkline data (12 points trending toward current value)
+  // ── Real P&L from actual EA closed trades ───────────────────────────────────
+  const closedTrades = eaTrades.filter((t: any) => t.status === "CLOSED");
+  const totalProfit  = closedTrades.reduce((s: number, t: any) => s + (Number(t.profit) || 0), 0);
+  const todayStr     = new Date().toDateString();
+  const dailyPnl     = closedTrades
+    .filter((t: any) => t.closedAt && new Date(Number(t.closedAt)).toDateString() === todayStr)
+    .reduce((s: number, t: any) => s + (Number(t.profit) || 0), 0);
+  const tradeWins    = closedTrades.filter((t: any) => (Number(t.profit) || 0) > 0).length;
+  const realWinRate  = closedTrades.length > 0 ? tradeWins / closedTrades.length : 0;
+
+  // Sparkline — deterministic (no Math.random, no re-render flicker)
   function genSpark(target: number, lo: number, hi: number): number[] {
-    const pts: number[] = [];
-    let v = lo + Math.random() * (hi - lo) * 0.4;
-    for (let i = 0; i < 11; i++) {
-      v += (target - v) * 0.2 + (Math.random() - 0.4) * (hi - lo) * 0.1;
-      pts.push(Math.max(lo, Math.min(hi, v)));
-    }
-    pts.push(target);
-    return pts;
+    const range = (hi - lo) || 1;
+    return Array.from({ length: 12 }, (_, i) => {
+      const t = i / 11;
+      const v = lo + (target - lo) * t + Math.sin(t * Math.PI * 1.5) * range * 0.06;
+      return Math.max(lo, Math.min(hi, i === 11 ? target : v));
+    });
   }
+
+  const profitColor = totalProfit >= 0 ? BLUE : RED;
   const stats = [
     {
-      label: "Total Signals",  sub: "This Month",
+      label: "Total Signals", sub: "This Month",
       value: totalSigs.toLocaleString(),
       icon: BarChart2, color: PURPLE,
-      spark: genSpark(totalSigs, 0, Math.max(totalSigs * 1.3, 100)),
+      spark: genSpark(totalSigs, 0, Math.max(totalSigs * 1.3, 10)),
     },
     {
       label: "Win Rate", sub: "This Month",
-      value: `${(winRate * 100).toFixed(1)}%`,
+      value: `${(realWinRate * 100).toFixed(1)}%`,
       icon: Activity, color: GREEN,
-      spark: genSpark(winRate * 100, 50, 100),
+      spark: genSpark(realWinRate * 100, 0, 100),
     },
     {
       label: "Total Profit", sub: "This Month",
-      value: demoBalance > 0 ? `+$${((demoBalance - 10000) > 0 ? demoBalance - 10000 : 0).toFixed(2)}` : "$0.00",
-      icon: TrendingUp, color: BLUE,
-      spark: genSpark(demoBalance > 10000 ? demoBalance - 10000 : 0, 0, Math.max(demoBalance * 0.1, 100)),
+      value: totalProfit !== 0 ? `${totalProfit >= 0 ? "+" : ""}$${Math.abs(totalProfit).toFixed(2)}` : "+$0.00",
+      icon: TrendingUp, color: profitColor,
+      spark: genSpark(Math.max(totalProfit, 0), 0, Math.max(Math.abs(totalProfit) * 2, 10)),
     },
     {
-      label: "Profit Accuracy", sub: "This Month",
-      value: `${profitPct.toFixed(1)}%`,
-      icon: Activity, color: GOLD,
-      spark: genSpark(profitPct, 50, 100),
+      label: "Today's P&L", sub: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+      value: dailyPnl !== 0 ? `${dailyPnl >= 0 ? "+" : ""}$${Math.abs(dailyPnl).toFixed(2)}` : "$0.00",
+      icon: Activity, color: dailyPnl >= 0 ? GOLD : RED,
+      spark: genSpark(Math.max(dailyPnl, 0), 0, Math.max(Math.abs(dailyPnl) * 2, 10)),
     },
   ];
 
@@ -544,8 +569,8 @@ export default function Dashboard() {
       })
     : ["", "", "", "", "", "", ""];
 
-  // Recent signals from history
-  const recentHistory = history.slice(0, 5);
+  // Recent trades from actual EA trade journal
+  const recentJournal = eaTrades.slice(0, 5);
 
   // ── Price cell helper ───────────────────────────────────────────────────────
   function PriceCell({ lbl, val, col }: { lbl: string; val: string; col: string }) {
@@ -582,10 +607,10 @@ export default function Dashboard() {
           <div className="flex lg:hidden" style={{ alignItems: "center", gap: 10 }}>
             <div style={{
               width: 36, height: 36, borderRadius: 10,
-              background: "linear-gradient(135deg,#6C5CE7,#4FC3F7)",
+              background: "#060818",
+              border: "1px solid rgba(108,92,231,0.45)",
               display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 18, fontWeight: 900, color: "#fff",
-            }}>S</div>
+            }}><SmartFXLogo size={26} /></div>
             <div>
               <div style={{ fontSize: 13, fontWeight: 900 }}>
                 <span style={{ color: PURPLE }}>SMART </span><span>FX TOOL</span>
@@ -906,8 +931,8 @@ export default function Dashboard() {
               display: "flex", alignItems: "center", justifyContent: "space-between",
               padding: "16px 20px", borderBottom: `1px solid ${BORDER}`,
             }}>
-              <span style={{ fontSize: 13, fontWeight: 800, letterSpacing: "0.06em" }}>RECENT SIGNALS</span>
-              <Link href="/signals">
+              <span style={{ fontSize: 13, fontWeight: 800, letterSpacing: "0.06em" }}>TRADE JOURNAL</span>
+              <Link href="/trades">
                 <button style={{
                   display: "flex", alignItems: "center", gap: 4,
                   background: "transparent", border: "none", cursor: "pointer",
@@ -916,43 +941,45 @@ export default function Dashboard() {
               </Link>
             </div>
 
-            {recentHistory.length === 0 ? (
+            {recentJournal.length === 0 ? (
               <div style={{ padding: "32px 20px", textAlign: "center", color: MUTED, fontSize: 12 }}>
-                No completed trades yet — signals will appear here after closing
+                No trades yet — your EA trades will appear here automatically
               </div>
             ) : (
-              recentHistory.map((sig: any, i: number) => {
-                const isWin  = sig.status === "HIT_TP";
-                const pnl    = isWin
-                  ? `+$${Math.abs((sig.takeProfit - sig.entry) * 1000).toFixed(2)}`
-                  : `-$${Math.abs((sig.entry - sig.stopLoss) * 1000).toFixed(2)}`;
-                const sigDate = sig.updatedAt
-                  ? new Date(sig.updatedAt).toLocaleString("en-US", { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" })
+              recentJournal.map((t: any, i: number) => {
+                const profit   = Number(t.profit) || 0;
+                const isWin    = profit > 0;
+                const isOpen   = t.status === "OPEN";
+                const pnlStr   = isOpen ? "OPEN" : `${profit >= 0 ? "+" : ""}$${Math.abs(profit).toFixed(2)}`;
+                const tradeDate = t.openedAt
+                  ? new Date(Number(t.openedAt)).toLocaleString("en-US", { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" })
                   : "—";
+                const ep = Number(t.openPrice || 0);
+                const cp = Number(t.closePrice || 0);
 
                 return (
-                  <div key={sig.id} style={{
+                  <div key={t.id} style={{
                     display: "flex", alignItems: "center", gap: 12, padding: "12px 20px",
-                    borderBottom: i < recentHistory.length - 1 ? `1px solid ${BORDER}` : "none",
+                    borderBottom: i < recentJournal.length - 1 ? `1px solid ${BORDER}` : "none",
                     flexWrap: "wrap",
                   }}>
-                    <FlagCircle pair={sig.pair} size={40} />
+                    <FlagCircle pair={t.symbol ?? "EURUSD"} size={40} />
                     <div style={{ minWidth: 90 }}>
-                      <div style={{ fontSize: 13, fontWeight: 800, color: TEXT }}>{fmt(sig.pair)}</div>
-                      <div style={{ fontSize: 9, color: MUTED, marginTop: 2 }}>{sigDate}</div>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: TEXT }}>{fmt(t.symbol ?? "")}</div>
+                      <div style={{ fontSize: 9, color: MUTED, marginTop: 2 }}>{tradeDate}</div>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 56 }}>
-                      {sig.signal === "BUY"
+                      {t.direction === "BUY"
                         ? <ArrowUpRight size={14} color={GREEN} />
                         : <ArrowDownRight size={14} color={RED} />}
-                      <span style={{ fontSize: 12, fontWeight: 700, color: sig.signal === "BUY" ? GREEN : RED }}>
-                        {sig.signal}
+                      <span style={{ fontSize: 12, fontWeight: 700, color: t.direction === "BUY" ? GREEN : RED }}>
+                        {t.direction}
                       </span>
                     </div>
                     {[
-                      { l: "Entry Price", v: Number(sig.entry).toFixed(sig.entry > 100 ? 3 : 5) },
-                      { l: "Take Profit", v: Number(sig.takeProfit).toFixed(sig.takeProfit > 100 ? 3 : 5) },
-                      { l: "Stop Loss",   v: Number(sig.stopLoss).toFixed(sig.stopLoss > 100 ? 3 : 5) },
+                      { l: "Entry Price",  v: ep > 0 ? ep.toFixed(ep > 100 ? 3 : 5) : "—" },
+                      { l: "Close Price",  v: cp > 0 ? cp.toFixed(cp > 100 ? 3 : 5) : (isOpen ? "Open" : "—") },
+                      { l: "Timeframe",    v: t.timeframe || "—" },
                     ].map(p => (
                       <div key={p.l} style={{ flex: 1, minWidth: 70 }}>
                         <div style={{ fontSize: 9, color: MUTED }}>{p.l}</div>
@@ -961,15 +988,15 @@ export default function Dashboard() {
                     ))}
                     <div style={{
                       fontSize: 12, fontWeight: 700, minWidth: 60, textAlign: "right",
-                      color: isWin ? GREEN : RED,
-                    }}>{pnl}</div>
+                      color: isOpen ? TEXT2 : (isWin ? GREEN : RED),
+                    }}>{pnlStr}</div>
                     <span style={{
                       fontSize: 11, fontWeight: 800, padding: "4px 14px", borderRadius: 8,
-                      background: isWin ? `${GREEN}18` : `${RED}18`,
-                      color: isWin ? GREEN : RED,
-                      border: `1px solid ${isWin ? GREEN : RED}44`,
+                      background: isOpen ? `${MUTED}18` : (isWin ? `${GREEN}18` : `${RED}18`),
+                      color: isOpen ? TEXT2 : (isWin ? GREEN : RED),
+                      border: `1px solid ${isOpen ? MUTED : (isWin ? GREEN : RED)}44`,
                       minWidth: 48, textAlign: "center",
-                    }}>{isWin ? "WIN" : "LOSS"}</span>
+                    }}>{isOpen ? "OPEN" : (isWin ? "WIN" : "LOSS")}</span>
                   </div>
                 );
               })

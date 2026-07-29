@@ -115,7 +115,7 @@ const TF_TO_YF: Record<string, { interval: string; range: string }> = {
 
 // ── Candle cache (5-minute TTL) ───────────────────────────────────────────────
 const _candleCache = new Map<string, { candles: CandleWithTime[]; fetchedAt: number }>();
-const CANDLE_TTL = 5 * 60 * 1000;
+const CANDLE_TTL = 2 * 60 * 1000; // 2-minute cache — Yahoo Finance delayed ~15 min but we refresh as often as possible
 
 async function fetchRealCandles(pair: string, timeframe: string, limit = 150): Promise<CandleWithTime[]> {
   const key = `${pair}_${timeframe}`;
