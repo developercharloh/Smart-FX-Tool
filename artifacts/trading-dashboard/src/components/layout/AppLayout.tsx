@@ -1,8 +1,14 @@
 import { ReactNode } from "react";
+import { useLocation } from "wouter";
 import { TopNav } from "./TopNav";
 import { MobileNav } from "./MobileNav";
 
 export function AppLayout({ children }: { children: ReactNode }) {
+  const [location] = useLocation();
+
+  // Dashboard at "/" has its own full-screen layout (sidebar + bottom nav)
+  if (location === "/") return <>{children}</>;
+
   return (
     <div className="flex flex-col h-screen bg-background text-foreground selection:bg-primary/30 overflow-hidden">
       <TopNav />

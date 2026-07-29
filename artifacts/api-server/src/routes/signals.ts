@@ -1910,6 +1910,40 @@ export function startPriceMonitor() {
   console.log("[priceMonitor] Disabled — signals are ACTIVE immediately on generation, no entry-wait needed.");
 }
 
+// ── GET /api/signals/chart/:pair/:timeframe — OHLC + indicators for dashboard ─
+router.get("/chart/:pair/:timeframe", async (req, res) => {
+  const pair  = (req.params.pair  || "EURUSD").toUpperCase();
+  const tf    = (req.params.timeframe || "M15").toUpperCase();
+  const limit = Math.min(Number(req.query.limit) || 80, 200);
+
+  try {
+    const candles = await fetchRealCandles(pair, tf, limit);
+    if (!candles.length) {
+      return res.json({ pair, timeframe: tf, candles: [], rsi: null, macd: null, macdSignal: null, trend: "NEUTRAL", sentiment: "NEUTRAL" });
+    }
+
+    const rsi      = candles.length >= 15 ? Number(calcRSI(candles).toFixed(2)) : null;
+    const macdData = candles.length >= 35 ? calcMACD(candles) : null;
+    const last20   = candles.slice(-20).map(c => c.close);
+    const trend    = last20[last20.length - 1] > last20[0] ? "BULLISH"
+                   : last20[last20.length - 1] < last20[0] ? "BEARISH" : "NEUTRAL";
+    const sentiment = (rsi ?? 50) > 55 ? "POSITIVE" : (rsi ?? 50) < 45 ? "NEGATIVE" : "NEUTRAL";
+
+    return res.json({
+      pair,
+      timeframe: tf,
+      candles: candles.map(c => ({ t: c.time, o: c.open, h: c.high, l: c.low, c: c.close })),
+      rsi,
+      macd:       macdData ? Number(macdData.macd.toFixed(6))   : null,
+      macdSignal: macdData ? Number(macdData.signal.toFixed(6)) : null,
+      trend,
+      sentiment,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // ── POST /api/signals/scanner/trigger — called by Vercel Cron every 2 min ───
 router.post("/scanner/trigger", async (_req, res) => {
   try {
