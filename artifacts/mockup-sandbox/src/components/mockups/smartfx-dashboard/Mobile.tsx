@@ -1,500 +1,630 @@
 import { useState, useEffect } from "react";
+import { AreaChart, Area, LineChart, Line, ResponsiveContainer } from "recharts";
 import {
-  AreaChart, Area, LineChart, Line, ResponsiveContainer,
-  ComposedChart, Bar, XAxis, YAxis, Tooltip
-} from "recharts";
-import {
-  Bell, TrendingUp, TrendingDown, ChevronRight, Share2,
-  BarChart2, Activity, Home, Zap, BookOpen, Wrench, User,
-  Clock, AlertCircle, CheckCircle2, ArrowUpRight, ArrowDownRight,
-  RefreshCw
+  Bell, TrendingUp, Share2, BarChart2, Activity,
+  Home, Zap, Wrench, User, Clock,
+  ArrowUpRight, ArrowDownRight,
 } from "lucide-react";
 
-// ── Mock data (mirrors real API shape) ────────────────────────────
-const STATS = [
-  { label: "Total Signals", value: "1,248", sub: "This Month", icon: BarChart2, color: "#7C6FF7", sparkColor: "#7C6FF7", spark: [30,45,28,60,52,78,65,90,72,95,80,100] },
-  { label: "Win Rate",       value: "87.6%", sub: "This Month", icon: CheckCircle2, color: "#00C896", sparkColor: "#00C896", spark: [50,60,55,70,65,80,75,85,78,90,85,88] },
-  { label: "Total Profit",   value: "+$3,482.21", sub: "This Month", icon: TrendingUp, color: "#4FC3F7", sparkColor: "#4FC3F7", spark: [100,180,120,250,200,310,280,380,320,420,390,480] },
-  { label: "Profit Accuracy",value: "92.3%", sub: "This Month", icon: Activity, color: "#FF9F43", sparkColor: "#FF9F43", spark: [60,72,68,80,75,88,82,90,87,93,90,92] },
-];
+/* ─────────────────────────────────────────────────────────────────
+   DESIGN TOKENS — exact match to reference image
+───────────────────────────────────────────────────────────────── */
+const BG        = "#080B18";      // page background
+const CARD      = "#0F1229";      // card background
+const CARD2     = "#131627";      // slightly lighter card (inner cells)
+const BORDER    = "rgba(255,255,255,0.07)";
+const PURPLE    = "#6C5CE7";
+const PURPLE_LT = "#A29BFE";
+const GREEN     = "#00CFA1";
+const RED       = "#FF3D57";
+const GOLD      = "#FF9F43";
+const BLUE      = "#4FC3F7";
+const MUTED     = "#636E82";
+const TEXT      = "#FFFFFF";
+const TEXT2     = "#A0AEC0";
 
-const LIVE_SIGNAL = {
-  pair: "EUR/USD", desc: "Euro / US Dollar", category: "MAJOR",
-  direction: "BUY", confidence: 92, tf: "M15",
-  entry: 1.08234, tp1: 1.08560, tp2: 1.08890,
-  sl: 1.07900, trend: "BULLISH", volatility: "MEDIUM", time: "11:30 AM",
+/* ─────────────────────────────────────────────────────────────────
+   FLAG IMAGES — real circular country flags via flagcdn.com
+   (served as HTTPS public CDN, no auth needed)
+───────────────────────────────────────────────────────────────── */
+const FLAGS: Record<string, { code: string; label: string }> = {
+  "EUR/USD": { code: "eu",   label: "EU" },
+  "GBP/USD": { code: "gb",   label: "GB" },
+  "XAU/USD": { code: "xau",  label: "XAU" },  // gold — custom below
+  "USD/JPY": { code: "us",   label: "US" },
+  "EUR/GBP": { code: "eu",   label: "EU" },
+  "AUD/USD": { code: "au",   label: "AU" },
 };
 
-const RECENT_SIGNALS = [
-  { pair: "GBP/USD", date: "28 May • 10:45 AM", dir: "SELL", entry: 1.27450, tp: 1.27000, sl: 1.27950, result: "WIN" },
-  { pair: "XAU/USD", date: "28 May • 09:32 AM", dir: "BUY",  entry: 2336.45, tp: 2345.00, sl: 2328.00, result: "WIN" },
-  { pair: "USD/JPY", date: "28 May • 08:15 AM", dir: "BUY",  entry: 156.234, tp: 156.900, sl: 155.700, result: "LOSS" },
-];
+function FlagCircle({ pair, size = 48 }: { pair: string; size?: number }) {
+  const info = FLAGS[pair];
+  if (!info) return <div style={{ width: size, height: size, borderRadius: "50%", background: CARD2 }} />;
 
-// ── Candlestick chart data ─────────────────────────────────────────
-const CANDLES = [
-  { t:"18:00",o:1.0785,h:1.0800,l:1.0780,c:1.0795 },
-  { t:"19:00",o:1.0795,h:1.0810,l:1.0790,c:1.0805 },
-  { t:"20:00",o:1.0805,h:1.0815,l:1.0798,c:1.0800 },
-  { t:"21:00",o:1.0800,h:1.0812,l:1.0792,c:1.0808 },
-  { t:"22:00",o:1.0808,h:1.0820,l:1.0802,c:1.0815 },
-  { t:"23:00",o:1.0815,h:1.0825,l:1.0808,c:1.0812 },
-  { t:"00:00",o:1.0812,h:1.0820,l:1.0805,c:1.0818 },
-  { t:"01:00",o:1.0818,h:1.0830,l:1.0812,c:1.0825 },
-  { t:"02:00",o:1.0825,h:1.0835,l:1.0818,c:1.0820 },
-  { t:"03:00",o:1.0820,h:1.0828,l:1.0810,c:1.0823 },
-  { t:"04:00",o:1.0823,h:1.0832,l:1.0818,c:1.0828 },
-  { t:"05:00",o:1.0828,h:1.0840,l:1.0822,c:1.0835 },
-  { t:"06:00",o:1.0835,h:1.0845,l:1.0828,c:1.0840 },
-  { t:"07:00",o:1.0840,h:1.0850,l:1.0832,c:1.0845 },
-  { t:"08:00",o:1.0845,h:1.0855,l:1.0838,c:1.0848 },
-  { t:"09:00",o:1.0848,h:1.0858,l:1.0840,c:1.0852 },
-  { t:"10:00",o:1.0852,h:1.0862,l:1.0845,c:1.0858 },
-  { t:"11:00",o:1.0858,h:1.0868,l:1.0850,c:1.08234 },
-  { t:"12:00",o:1.08234,h:1.0872,l:1.0818,c:1.0840 },
-];
-
-// ── Pair flags ────────────────────────────────────────────────────
-const FLAG: Record<string, string> = {
-  "EUR/USD": "🇪🇺",
-  "GBP/USD": "🇬🇧",
-  "XAU/USD": "🥇",
-  "USD/JPY": "🇺🇸",
-};
-
-// ── SVG Candlestick chart ─────────────────────────────────────────
-function CandlestickChart() {
-  const W = 340, H = 120;
-  const prices = CANDLES.map(c => [c.l, c.h]).flat();
-  const minP = Math.min(...prices) - 0.0005;
-  const maxP = Math.max(...prices) + 0.0005;
-  const scaleY = (p: number) => H - ((p - minP) / (maxP - minP)) * H;
-  const candleW = W / CANDLES.length;
+  if (info.code === "xau") {
+    // Gold coin icon
+    return (
+      <div style={{
+        width: size, height: size, borderRadius: "50%",
+        background: "linear-gradient(135deg, #f7971e, #ffd200)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: size * 0.52, boxShadow: `0 0 0 2px #FF9F4333`,
+      }}>
+        🥇
+      </div>
+    );
+  }
 
   return (
-    <svg width="100%" viewBox={`0 0 ${W} ${H}`} className="w-full">
+    <div style={{
+      width: size, height: size, borderRadius: "50%",
+      overflow: "hidden", flexShrink: 0,
+      boxShadow: `0 0 0 2px ${BORDER}`,
+      background: CARD2,
+    }}>
+      <img
+        src={`https://flagcdn.com/${size >= 40 ? "64x48" : "32x24"}/${info.code}.png`}
+        alt={pair}
+        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+      />
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   MOCK DATA
+───────────────────────────────────────────────────────────────── */
+const STATS = [
+  { label: "Total Signals",   value: "1,248",      sub: "This Month", icon: BarChart2,   color: PURPLE,  spark: [30,45,28,60,52,78,65,90,72,95,80,100] },
+  { label: "Win Rate",        value: "87.6%",       sub: "This Month", icon: Activity,    color: GREEN,   spark: [50,60,55,70,65,80,75,85,78,90,85,88] },
+  { label: "Total Profit",    value: "+$3,482.21",  sub: "This Month", icon: TrendingUp,  color: BLUE,    spark: [100,180,120,250,200,310,280,380,320,420,390,480] },
+  { label: "Profit Accuracy", value: "92.3%",       sub: "This Month", icon: Activity,    color: GOLD,    spark: [60,72,68,80,75,88,82,90,87,93,90,92] },
+];
+
+const LIVE = {
+  pair: "EUR/USD", desc: "Euro / US Dollar", cat: "MAJOR",
+  dir: "BUY", conf: 92, tf: "M15",
+  entry: 1.08234, tp1: 1.08560, tp2: 1.08890, sl: 1.07900,
+  trend: "BULLISH", vol: "MEDIUM", time: "11:30 AM",
+};
+
+const RECENT = [
+  { pair: "GBP/USD", date: "28 May • 10:45 AM", dir: "SELL", entry: "1.27450", tp: "1.27000", sl: "1.27950", result: "WIN"  },
+  { pair: "XAU/USD", date: "28 May • 09:32 AM", dir: "BUY",  entry: "2336.45", tp: "2345.00", sl: "2328.00", result: "WIN"  },
+  { pair: "USD/JPY", date: "28 May • 08:15 AM", dir: "BUY",  entry: "156.234", tp: "156.900", sl: "155.700", result: "LOSS" },
+];
+
+/* ─────────────────────────────────────────────────────────────────
+   CANDLESTICK SVG
+───────────────────────────────────────────────────────────────── */
+const RAW_CANDLES = [
+  {o:1.0785,h:1.0800,l:1.0780,c:1.0795},{o:1.0795,h:1.0810,l:1.0790,c:1.0802},
+  {o:1.0802,h:1.0812,l:1.0796,c:1.0807},{o:1.0807,h:1.0820,l:1.0800,c:1.0815},
+  {o:1.0815,h:1.0825,l:1.0808,c:1.0810},{o:1.0810,h:1.0818,l:1.0803,c:1.0816},
+  {o:1.0816,h:1.0828,l:1.0810,c:1.0822},{o:1.0822,h:1.0835,l:1.0815,c:1.0830},
+  {o:1.0830,h:1.0842,l:1.0824,c:1.0826},{o:1.0826,h:1.0834,l:1.0818,c:1.0831},
+  {o:1.0831,h:1.0845,l:1.0825,c:1.0840},{o:1.0840,h:1.0852,l:1.0833,c:1.0847},
+  {o:1.0847,h:1.0858,l:1.0840,c:1.0852},{o:1.0852,h:1.0864,l:1.0844,c:1.0860},
+  {o:1.0860,h:1.0870,l:1.0852,c:1.0856},{o:1.0856,h:1.0865,l:1.0848,c:1.0862},
+  {o:1.0862,h:1.0875,l:1.0855,c:1.0868},{o:1.0868,h:1.0878,l:1.0860,c:1.08234},
+  {o:1.08234,h:1.0875,l:1.0818,c:1.0840},
+];
+
+const TIME_LABELS = ["18:00","21:00","28","03:00","06:00","09:00","12:00"];
+
+function CandleChart({ width = 344, height = 118 }: { width?: number; height?: number }) {
+  const ps = RAW_CANDLES.flatMap(c => [c.l, c.h]);
+  const lo = Math.min(...ps) - 0.0004;
+  const hi = Math.max(...ps) + 0.0004;
+  const sy = (p: number) => height - ((p - lo) / (hi - lo)) * height;
+  const cw = width / RAW_CANDLES.length;
+  const curY = sy(1.08234);
+
+  return (
+    <svg width="100%" viewBox={`0 0 ${width} ${height}`} style={{ display: "block" }}>
+      <defs>
+        <linearGradient id="maGrad" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor={PURPLE} stopOpacity="0.2" />
+          <stop offset="100%" stopColor={PURPLE_LT} stopOpacity="0.8" />
+        </linearGradient>
+      </defs>
       {/* MA line */}
       <polyline
-        points={CANDLES.map((c, i) => `${i * candleW + candleW/2},${scaleY((c.o+c.c)/2)}`).join(" ")}
-        fill="none" stroke="#7C6FF7" strokeWidth="1.5" opacity="0.8"
+        points={RAW_CANDLES.map((c, i) => `${i * cw + cw / 2},${sy((c.o + c.c) / 2)}`).join(" ")}
+        fill="none" stroke={PURPLE} strokeWidth="1.8" opacity="0.9"
       />
-      {CANDLES.map((c, i) => {
-        const x = i * candleW + candleW * 0.2;
+      {/* Candles */}
+      {RAW_CANDLES.map((c, i) => {
         const bull = c.c >= c.o;
-        const top = scaleY(Math.max(c.o, c.c));
-        const bot = scaleY(Math.min(c.o, c.c));
-        const ht = Math.max(bot - top, 1);
+        const col  = bull ? GREEN : RED;
+        const top  = sy(Math.max(c.o, c.c));
+        const bot  = sy(Math.min(c.o, c.c));
+        const ht   = Math.max(bot - top, 1.2);
+        const cx   = i * cw + cw / 2;
         return (
           <g key={i}>
-            <line x1={i * candleW + candleW/2} y1={scaleY(c.h)} x2={i * candleW + candleW/2} y2={scaleY(c.l)}
-              stroke={bull ? "#00C896" : "#FF4757"} strokeWidth="0.8" />
-            <rect x={x} y={top} width={candleW * 0.6} height={ht}
-              fill={bull ? "#00C896" : "#FF4757"} opacity="0.9" rx="0.5" />
+            <line x1={cx} y1={sy(c.h)} x2={cx} y2={sy(c.l)} stroke={col} strokeWidth="0.8" />
+            <rect x={i * cw + cw * 0.15} y={top} width={cw * 0.7} height={ht}
+              fill={col} opacity="0.88" rx="0.6" />
           </g>
         );
       })}
-      {/* Current price line */}
-      <line x1="0" y1={scaleY(1.08234)} x2={W} y2={scaleY(1.08234)}
-        stroke="#FF9F43" strokeWidth="0.8" strokeDasharray="3,3" opacity="0.8" />
-      <rect x={W - 52} y={scaleY(1.08234) - 8} width={52} height={16} rx="3" fill="#FF9F43" />
-      <text x={W - 26} y={scaleY(1.08234) + 5} textAnchor="middle" fontSize="7" fill="#000" fontWeight="bold">1.08234</text>
+      {/* Current price dashed line + tag */}
+      <line x1="0" y1={curY} x2={width} y2={curY}
+        stroke={GOLD} strokeWidth="0.8" strokeDasharray="3,3" opacity="0.75" />
+      <rect x={width - 56} y={curY - 9} width={56} height={18} rx="4" fill={GOLD} />
+      <text x={width - 28} y={curY + 5} textAnchor="middle"
+        fontSize="7.5" fill="#000" fontWeight="700">1.08234</text>
     </svg>
   );
 }
 
-// ── Countdown timer ──────────────────────────────────────────────
-function Countdown() {
-  const [secs, setSecs] = useState(28);
+/* ─────────────────────────────────────────────────────────────────
+   COUNTDOWN RING
+───────────────────────────────────────────────────────────────── */
+function CountdownRing({ size = 68 }: { size?: number }) {
+  const [s, setS] = useState(28);
   useEffect(() => {
-    const t = setInterval(() => setSecs(s => s <= 0 ? 899 : s - 1), 1000);
+    const t = setInterval(() => setS(p => (p <= 0 ? 899 : p - 1)), 1000);
     return () => clearInterval(t);
   }, []);
-  const m = String(Math.floor(secs / 60)).padStart(2, "0");
-  const s = String(secs % 60).padStart(2, "0");
-  const pct = (secs / 900) * 100;
-  const r = 22, circ = 2 * Math.PI * r;
+  const r = size / 2 - 5;
+  const circ = 2 * Math.PI * r;
+  const pct  = s / 900;
+  const mm   = String(Math.floor(s / 60)).padStart(2, "0");
+  const ss   = String(s % 60).padStart(2, "0");
+
   return (
-    <div className="flex flex-col items-center justify-center relative w-16 h-16">
-      <svg className="absolute inset-0" width="64" height="64" viewBox="0 0 64 64">
-        <circle cx="32" cy="32" r={r} fill="none" stroke="#1E2240" strokeWidth="3" />
-        <circle cx="32" cy="32" r={r} fill="none" stroke="#7C6FF7" strokeWidth="3"
-          strokeDasharray={circ} strokeDashoffset={circ * (1 - pct / 100)}
-          strokeLinecap="round" transform="rotate(-90 32 32)" />
+    <div style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
+      <svg width={size} height={size} style={{ position: "absolute", inset: 0 }}>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#1A1E38" strokeWidth="3.5" />
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={PURPLE} strokeWidth="3.5"
+          strokeDasharray={circ} strokeDashoffset={circ * (1 - pct)}
+          strokeLinecap="round" transform={`rotate(-90 ${size/2} ${size/2})`} />
       </svg>
-      <div className="relative text-center">
-        <div className="text-[9px] text-[#8892A4] font-medium leading-none">NEXT UPDATE</div>
-        <div className="text-[11px] font-bold text-white mt-0.5">{m}:{s}</div>
+      <div style={{
+        position: "absolute", inset: 0, display: "flex",
+        flexDirection: "column", alignItems: "center", justifyContent: "center",
+      }}>
+        <span style={{ fontSize: 8, color: MUTED, fontWeight: 600, lineHeight: 1, letterSpacing: "0.04em" }}>NEXT UPDATE</span>
+        <span style={{ fontSize: 13, color: TEXT, fontWeight: 900, marginTop: 2 }}>{mm}:{ss}</span>
       </div>
     </div>
   );
 }
 
-// ── Sentiment gauge ──────────────────────────────────────────────
-function SentimentGauge({ value = 75 }) {
-  const angle = -90 + (value / 100) * 180;
+/* ─────────────────────────────────────────────────────────────────
+   SENTIMENT GAUGE
+───────────────────────────────────────────────────────────────── */
+function Gauge() {
+  const W = 58, H = 34, r = 22, cx = W / 2, cy = 34;
+  const arc = (start: number, end: number, col: string) => {
+    const s = (start * Math.PI) / 180, e = (end * Math.PI) / 180;
+    const x1 = cx + r * Math.cos(s - Math.PI), y1 = cy + r * Math.sin(s - Math.PI);
+    const x2 = cx + r * Math.cos(e - Math.PI), y2 = cy + r * Math.sin(e - Math.PI);
+    const lg = end - start > 180 ? 1 : 0;
+    return <path d={`M${x1},${y1} A${r},${r},0,${lg},1,${x2},${y2}`}
+      fill="none" stroke={col} strokeWidth="5" strokeLinecap="round" />;
+  };
+  const nAngle = -15; // ~75% positive
+  const nx = cx + (r - 2) * Math.cos((nAngle * Math.PI) / 180);
+  const ny = cy + (r - 2) * Math.sin((nAngle * Math.PI) / 180);
   return (
-    <svg width="56" height="32" viewBox="0 0 56 32">
-      <path d="M4 28 A24 24 0 0 1 52 28" fill="none" stroke="#FF4757" strokeWidth="6" strokeLinecap="round" />
-      <path d="M4 28 A24 24 0 0 1 52 28" fill="none" stroke="#FF9F43" strokeWidth="6"
-        strokeLinecap="round" strokeDasharray="75 100" />
-      <path d="M4 28 A24 24 0 0 1 52 28" fill="none" stroke="#00C896" strokeWidth="6"
-        strokeLinecap="round" strokeDasharray="37 100" />
-      <line
-        x1="28" y1="28"
-        x2={28 + 18 * Math.cos((angle * Math.PI) / 180)}
-        y2={28 + 18 * Math.sin((angle * Math.PI) / 180)}
-        stroke="white" strokeWidth="2" strokeLinecap="round"
-      />
-      <circle cx="28" cy="28" r="3" fill="white" />
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ overflow: "visible" }}>
+      {arc(0, 60, RED)}
+      {arc(60, 120, GOLD)}
+      {arc(120, 180, GREEN)}
+      <line x1={cx} y1={cy} x2={nx} y2={ny} stroke={TEXT} strokeWidth="2" strokeLinecap="round" />
+      <circle cx={cx} cy={cy} r="3" fill={TEXT} />
     </svg>
   );
 }
 
-// ── Nav tabs ─────────────────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────────
+   STAT CARD
+───────────────────────────────────────────────────────────────── */
+function StatCard({ label, value, sub, icon: Icon, color, spark }: typeof STATS[0]) {
+  const gradId = `g_${label.replace(/\s+/g, "")}`;
+  return (
+    <div style={{
+      background: CARD, borderRadius: 20, padding: "14px 14px 10px",
+      border: `1px solid ${BORDER}`, position: "relative", overflow: "hidden",
+    }}>
+      {/* bg glow */}
+      <div style={{
+        position: "absolute", top: 0, right: 0, width: 80, height: 80,
+        borderRadius: "50%", background: color, opacity: 0.07,
+        transform: "translate(20px,-20px)",
+      }} />
+      <div style={{
+        width: 36, height: 36, borderRadius: 12,
+        background: `${color}1A`, display: "flex", alignItems: "center",
+        justifyContent: "center", marginBottom: 10,
+        boxShadow: `0 0 12px ${color}33`,
+      }}>
+        <Icon size={15} color={color} />
+      </div>
+      <div style={{ fontSize: 10, color: MUTED, marginBottom: 2 }}>{label}</div>
+      <div style={{ fontSize: 17, fontWeight: 900, color: TEXT, lineHeight: 1.2 }}>{value}</div>
+      <div style={{ fontSize: 9, color: MUTED, marginTop: 2 }}>{sub}</div>
+      <div style={{ marginTop: 8, height: 32 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={spark.map((v, i) => ({ i, v }))}>
+            <defs>
+              <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%"  stopColor={color} stopOpacity={0.35} />
+                <stop offset="95%" stopColor={color} stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <Area type="monotone" dataKey="v" stroke={color} strokeWidth={1.8}
+              fill={`url(#${gradId})`} dot={false} />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   BOTTOM NAV
+───────────────────────────────────────────────────────────────── */
 const NAV = [
   { icon: Home,     label: "Dashboard" },
-  { icon: Zap,      label: "Signals" },
-  { icon: BarChart2,label: "Analysis" },
-  { icon: Wrench,   label: "Tools" },
-  { icon: User,     label: "Account" },
+  { icon: Zap,      label: "Signals"   },
+  { icon: BarChart2,label: "Analysis"  },
+  { icon: Wrench,   label: "Tools"     },
+  { icon: User,     label: "Account"   },
 ];
 
+/* ─────────────────────────────────────────────────────────────────
+   MAIN COMPONENT
+───────────────────────────────────────────────────────────────── */
 export function Mobile() {
-  const [activeNav, setActiveNav] = useState(0);
-  const [activeTF, setActiveTF] = useState("M15");
+  const [nav,  setNav]  = useState(0);
+  const [tf,   setTF]   = useState("M15");
   const TFS = ["M5","M15","H1","H4","D1"];
 
+  const cell = (lbl: string, val: string, col: string) => (
+    <div style={{ background: "#0D1024", borderRadius: 10, padding: "6px 8px" }}>
+      <div style={{ fontSize: 7.5, color: MUTED, marginBottom: 3, lineHeight: 1 }}>{lbl}</div>
+      <div style={{ fontSize: 10, fontWeight: 700, color: col }}>{val}</div>
+    </div>
+  );
+
   return (
-    <div className="w-[390px] min-h-screen font-sans overflow-y-auto"
-      style={{ background: "#0A0C1A", fontFamily: "'Inter', sans-serif", color: "#fff" }}>
-
-      {/* Status bar */}
-      <div className="flex justify-between items-center px-4 pt-3 pb-1 text-[11px] font-medium" style={{ color: "#A0AEC0" }}>
+    <div style={{
+      width: 390, minHeight: "100vh", background: BG,
+      fontFamily: "'Inter', -apple-system, sans-serif", color: TEXT,
+      overflowX: "hidden", overflowY: "auto",
+    }}>
+      {/* ── STATUS BAR ───────────────────────────────────────────── */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+        padding: "10px 18px 4px", fontSize: 11, color: TEXT2, fontWeight: 600 }}>
         <span>9:41</span>
-        <div className="flex gap-1 items-center">
-          <span>▪▪▪</span><span>WiFi</span><span>🔋</span>
+        <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
+          <span style={{ letterSpacing: 1 }}>▪▪▪</span><span>WiFi</span><span>🔋</span>
         </div>
       </div>
 
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3">
-        <div className="flex items-center gap-2">
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-white text-lg"
-            style={{ background: "linear-gradient(135deg, #7C6FF7, #4FC3F7)" }}>S</div>
+      {/* ── HEADER ───────────────────────────────────────────────── */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "10px 18px 12px" }}>
+        {/* Logo */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{
+            width: 40, height: 40, borderRadius: 12,
+            background: "linear-gradient(135deg, #6C5CE7 0%, #4FC3F7 100%)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 22, fontWeight: 900, color: "#fff",
+            boxShadow: "0 4px 16px rgba(108,92,231,0.45)",
+          }}>S</div>
           <div>
-            <div className="text-[15px] font-black tracking-wide">
-              <span style={{ color: "#7C6FF7" }}>SMART</span>{" "}
-              <span className="text-white">FX</span>{" "}
-              <span className="text-white">TOOL</span>
+            <div style={{ fontSize: 15, fontWeight: 900, letterSpacing: "0.04em", lineHeight: 1.2 }}>
+              <span style={{ color: PURPLE }}>SMART </span>
+              <span style={{ color: TEXT }}>FX</span>
             </div>
-            <div className="text-[9px]" style={{ color: "#636E82" }}>Smart Signals. Smarter Trades.</div>
+            <div style={{ fontSize: 13, fontWeight: 900, color: TEXT, lineHeight: 1.1 }}>TOOL</div>
+            <div style={{ fontSize: 9, color: MUTED, marginTop: 1 }}>Smart Signals. Smarter Trades.</div>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="relative">
-            <Bell size={18} style={{ color: "#A0AEC0" }} />
-            <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full flex items-center justify-center text-[8px] font-bold"
-              style={{ background: "#7C6FF7" }}>3</span>
+
+        {/* Right: bell + user */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ position: "relative" }}>
+            <Bell size={19} color={TEXT2} />
+            <div style={{
+              position: "absolute", top: -4, right: -4,
+              width: 15, height: 15, borderRadius: "50%",
+              background: PURPLE, display: "flex", alignItems: "center",
+              justifyContent: "center", fontSize: 8, fontWeight: 700, color: "#fff",
+            }}>3</div>
           </div>
-          <div className="flex items-center gap-2 px-2 py-1.5 rounded-xl"
-            style={{ background: "#141628", border: "1px solid rgba(124,111,247,0.2)" }}>
-            <div className="w-7 h-7 rounded-full overflow-hidden flex items-center justify-center text-sm"
-              style={{ background: "linear-gradient(135deg, #7C6FF7, #4FC3F7)" }}>👤</div>
+          <div style={{
+            display: "flex", alignItems: "center", gap: 8,
+            background: CARD, borderRadius: 14, padding: "6px 10px",
+            border: `1px solid ${BORDER}`,
+          }}>
+            <div style={{
+              width: 30, height: 30, borderRadius: "50%",
+              background: "linear-gradient(135deg,#6C5CE7,#4FC3F7)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 13, overflow: "hidden",
+            }}>
+              <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Charloh&backgroundColor=6C5CE7"
+                width={30} height={30} alt="avatar"
+                style={{ borderRadius: "50%", objectFit: "cover" }}
+                onError={(e: any) => { e.target.style.display = "none"; }}
+              />
+            </div>
             <div>
-              <div className="text-[11px] font-semibold text-white leading-none">Trader Charloh</div>
-              <div className="flex items-center gap-1 mt-0.5">
-                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded"
-                  style={{ background: "linear-gradient(90deg, #7C6FF7, #A29BFE)", color: "#fff" }}>PREMIUM</span>
+              <div style={{ fontSize: 11, fontWeight: 700, color: TEXT, lineHeight: 1 }}>Trader Charloh</div>
+              <div style={{ marginTop: 3 }}>
+                <span style={{
+                  fontSize: 8, fontWeight: 800, padding: "2px 7px", borderRadius: 5,
+                  background: "linear-gradient(90deg,#6C5CE7,#A29BFE)", color: "#fff",
+                  letterSpacing: "0.06em",
+                }}>PREMIUM</span>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Wallet row */}
-      <div className="px-4 mb-3 flex gap-2">
+      {/* ── WALLETS ──────────────────────────────────────────────── */}
+      <div style={{ display: "flex", gap: 10, padding: "0 18px 14px" }}>
         {[
-          { label: "Demo Wallet", val: "$10,000.00", color: "#4FC3F7" },
-          { label: "Real Wallet",  val: "$0.00",     color: "#00C896" },
+          { lbl: "Demo Wallet", val: "$10,000.00", col: BLUE },
+          { lbl: "Real Wallet",  val: "$0.00",     col: GREEN },
         ].map(w => (
-          <div key={w.label} className="flex-1 rounded-xl px-3 py-2 flex items-center gap-2"
-            style={{ background: "#141628", border: `1px solid ${w.color}22` }}>
-            <div className="w-2 h-2 rounded-full" style={{ background: w.color }} />
+          <div key={w.lbl} style={{
+            flex: 1, background: CARD, borderRadius: 14, padding: "10px 12px",
+            border: `1px solid ${w.col}22`, display: "flex", alignItems: "center", gap: 8,
+          }}>
+            <div style={{ width: 8, height: 8, borderRadius: "50%", background: w.col,
+              boxShadow: `0 0 6px ${w.col}` }} />
             <div>
-              <div className="text-[9px]" style={{ color: "#636E82" }}>{w.label}</div>
-              <div className="text-[13px] font-bold" style={{ color: w.color }}>{w.val}</div>
+              <div style={{ fontSize: 9, color: MUTED }}>{w.lbl}</div>
+              <div style={{ fontSize: 13, fontWeight: 800, color: w.col, marginTop: 1 }}>{w.val}</div>
             </div>
           </div>
         ))}
       </div>
 
-      {/* Stats cards */}
-      <div className="grid grid-cols-2 gap-2.5 px-4 mb-4">
-        {STATS.map((s) => (
-          <div key={s.label} className="rounded-2xl p-3 relative overflow-hidden"
-            style={{ background: "#141628", border: "1px solid rgba(255,255,255,0.06)" }}>
-            <div className="absolute inset-0 opacity-5 rounded-2xl"
-              style={{ background: `radial-gradient(circle at top right, ${s.color}, transparent)` }} />
-            <div className="relative">
-              <div className="flex items-center justify-between mb-2">
-                <div className="w-8 h-8 rounded-xl flex items-center justify-center"
-                  style={{ background: `${s.color}18` }}>
-                  <s.icon size={14} style={{ color: s.color }} />
-                </div>
-              </div>
-              <div className="text-[9px] mb-0.5" style={{ color: "#636E82" }}>{s.label}</div>
-              <div className="text-[16px] font-black leading-tight text-white">{s.value}</div>
-              <div className="text-[9px] mt-0.5" style={{ color: "#636E82" }}>{s.sub}</div>
-              <div className="mt-2 h-8">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={s.spark.map((v, i) => ({ i, v }))}>
-                    <defs>
-                      <linearGradient id={`g${s.label.replace(/\s/g,"")}`} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor={s.sparkColor} stopOpacity={0.3} />
-                        <stop offset="95%" stopColor={s.sparkColor} stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <Area type="monotone" dataKey="v" stroke={s.sparkColor} strokeWidth={1.5}
-                      fill={`url(#g${s.label.replace(/\s/g,"")})`} dot={false} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </div>
-        ))}
+      {/* ── STATS GRID ───────────────────────────────────────────── */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, padding: "0 18px 14px" }}>
+        {STATS.map(s => <StatCard key={s.label} {...s} />)}
       </div>
 
-      {/* Live Signal */}
-      <div className="px-4 mb-4">
-        <div className="rounded-2xl overflow-hidden" style={{ background: "#141628", border: "1px solid rgba(255,255,255,0.06)" }}>
-          {/* Header */}
-          <div className="flex items-center justify-between px-4 pt-4 pb-3"
-            style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full animate-pulse" style={{ background: "#FF4757" }} />
-              <span className="text-[13px] font-bold text-white tracking-wide">LIVE SIGNAL</span>
+      {/* ── LIVE SIGNAL ──────────────────────────────────────────── */}
+      <div style={{ margin: "0 18px 14px" }}>
+        <div style={{
+          background: CARD, borderRadius: 20, overflow: "hidden",
+          border: `1px solid ${BORDER}`,
+          boxShadow: `0 0 30px rgba(108,92,231,0.08)`,
+        }}>
+          {/* header row */}
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "14px 16px 12px",
+            borderBottom: `1px solid ${BORDER}`,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+              <div style={{
+                width: 8, height: 8, borderRadius: "50%", background: RED,
+                boxShadow: `0 0 6px ${RED}`,
+                animation: "pulse 1.2s infinite",
+              }} />
+              <span style={{ fontSize: 13, fontWeight: 800, letterSpacing: "0.06em" }}>🔥 LIVE SIGNAL</span>
             </div>
-            <div className="flex items-center gap-1.5">
-              <div className="w-1.5 h-1.5 rounded-full" style={{ background: "#00C896" }} />
-              <span className="text-[10px]" style={{ color: "#00C896" }}>Market Open</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+              <div style={{ width: 7, height: 7, borderRadius: "50%", background: GREEN }} />
+              <span style={{ fontSize: 10, color: GREEN, fontWeight: 600 }}>Market Open</span>
             </div>
           </div>
 
-          {/* Pair + Direction + Confidence + Timer */}
-          <div className="px-4 pt-3 pb-2">
-            <div className="flex items-start justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-full flex items-center justify-center text-2xl"
-                  style={{ background: "#1E2240" }}>
-                  {FLAG[LIVE_SIGNAL.pair]}
-                </div>
+          {/* body */}
+          <div style={{ padding: "14px 16px" }}>
+            {/* Pair + Timer */}
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <FlagCircle pair={LIVE.pair} size={52} />
                 <div>
-                  <div className="text-[18px] font-black text-white">{LIVE_SIGNAL.pair}</div>
-                  <div className="text-[10px]" style={{ color: "#636E82" }}>{LIVE_SIGNAL.desc}</div>
-                  <div className="text-[9px] font-bold px-2 py-0.5 rounded mt-1 inline-block"
-                    style={{ background: "#7C6FF722", color: "#7C6FF7", border: "1px solid #7C6FF733" }}>
-                    {LIVE_SIGNAL.category}
-                  </div>
+                  <div style={{ fontSize: 20, fontWeight: 900, color: TEXT }}>{LIVE.pair}</div>
+                  <div style={{ fontSize: 10, color: MUTED }}>{LIVE.desc}</div>
+                  <div style={{
+                    display: "inline-block", marginTop: 5,
+                    fontSize: 9, fontWeight: 700, padding: "2px 8px", borderRadius: 5,
+                    background: `${PURPLE}1A`, color: PURPLE_LT,
+                    border: `1px solid ${PURPLE}44`,
+                  }}>{LIVE.cat}</div>
                 </div>
               </div>
-              <Countdown />
+              <CountdownRing size={66} />
             </div>
 
-            {/* Direction / Confidence */}
-            <div className="grid grid-cols-2 gap-2 mt-3">
-              <div className="rounded-xl p-2.5" style={{ background: "#1E2240" }}>
-                <div className="text-[9px] mb-1" style={{ color: "#636E82" }}>DIRECTION</div>
-                <div className="flex items-center gap-1">
-                  <span className="text-[18px] font-black" style={{ color: "#00C896" }}>
-                    {LIVE_SIGNAL.direction}
-                  </span>
-                  <ArrowUpRight size={16} style={{ color: "#00C896" }} />
+            {/* Direction + Confidence */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+              <div style={{ background: CARD2, borderRadius: 12, padding: "10px 12px" }}>
+                <div style={{ fontSize: 9, color: MUTED, marginBottom: 5, fontWeight: 600 }}>DIRECTION</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <span style={{ fontSize: 20, fontWeight: 900, color: GREEN }}>{LIVE.dir}</span>
+                  <ArrowUpRight size={18} color={GREEN} />
                 </div>
               </div>
-              <div className="rounded-xl p-2.5" style={{ background: "#1E2240" }}>
-                <div className="text-[9px] mb-1" style={{ color: "#636E82" }}>CONFIDENCE</div>
-                <div className="text-[18px] font-black" style={{ color: "#7C6FF7" }}>
-                  {LIVE_SIGNAL.confidence}%
-                </div>
+              <div style={{ background: CARD2, borderRadius: 12, padding: "10px 12px" }}>
+                <div style={{ fontSize: 9, color: MUTED, marginBottom: 5, fontWeight: 600 }}>CONFIDENCE</div>
+                <div style={{ fontSize: 20, fontWeight: 900, color: PURPLE }}>{LIVE.conf}%</div>
               </div>
             </div>
 
             {/* Price grid */}
-            <div className="grid grid-cols-5 gap-1 mt-3">
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 5, marginBottom: 10 }}>
+              {cell("ENTRY PRICE",   LIVE.entry.toFixed(5), TEXT2)}
+              {cell("TAKE PROFIT 1", LIVE.tp1.toFixed(5),   GREEN)}
+              {cell("TAKE PROFIT 2", LIVE.tp2.toFixed(5),   GREEN)}
+              {cell("STOP LOSS",     LIVE.sl.toFixed(5),    RED)}
+              {cell("TIMEFRAME",     LIVE.tf,               PURPLE_LT)}
+            </div>
+
+            {/* Trend / Vol / Time */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8, marginBottom: 14 }}>
               {[
-                { label: "ENTRY PRICE", val: LIVE_SIGNAL.entry.toFixed(5), color: "#A0AEC0" },
-                { label: "TAKE PROFIT 1", val: LIVE_SIGNAL.tp1.toFixed(5), color: "#00C896" },
-                { label: "TAKE PROFIT 2", val: LIVE_SIGNAL.tp2.toFixed(5), color: "#00C896" },
-                { label: "STOP LOSS", val: LIVE_SIGNAL.sl.toFixed(5), color: "#FF4757" },
-                { label: "TIMEFRAME", val: LIVE_SIGNAL.tf, color: "#7C6FF7" },
-              ].map(p => (
-                <div key={p.label} className="rounded-lg p-1.5" style={{ background: "#1A1D35" }}>
-                  <div className="text-[7px] leading-tight mb-1" style={{ color: "#636E82" }}>{p.label}</div>
-                  <div className="text-[9px] font-bold" style={{ color: p.color }}>{p.val}</div>
+                { icon: TrendingUp, lbl: "TREND",      val: LIVE.trend, col: GREEN },
+                { icon: Activity,   lbl: "VOLATILITY", val: LIVE.vol,   col: GOLD  },
+                { icon: Clock,      lbl: "TIME",       val: LIVE.time,  col: BLUE  },
+              ].map(r => (
+                <div key={r.lbl} style={{
+                  background: CARD2, borderRadius: 12, padding: "8px 10px",
+                  display: "flex", alignItems: "center", gap: 6,
+                }}>
+                  <r.icon size={13} color={r.col} />
+                  <div>
+                    <div style={{ fontSize: 7.5, color: MUTED }}>{r.lbl}</div>
+                    <div style={{ fontSize: 9.5, fontWeight: 700, color: r.col }}>{r.val}</div>
+                  </div>
                 </div>
               ))}
             </div>
 
-            {/* Trend / Volatility / Time */}
-            <div className="grid grid-cols-3 gap-2 mt-2">
-              <div className="rounded-xl p-2 flex items-center gap-1.5" style={{ background: "#1A1D35" }}>
-                <TrendingUp size={12} style={{ color: "#00C896" }} />
-                <div>
-                  <div className="text-[7px]" style={{ color: "#636E82" }}>TREND</div>
-                  <div className="text-[9px] font-bold" style={{ color: "#00C896" }}>{LIVE_SIGNAL.trend}</div>
-                </div>
-              </div>
-              <div className="rounded-xl p-2 flex items-center gap-1.5" style={{ background: "#1A1D35" }}>
-                <Activity size={12} style={{ color: "#FF9F43" }} />
-                <div>
-                  <div className="text-[7px]" style={{ color: "#636E82" }}>VOLATILITY</div>
-                  <div className="text-[9px] font-bold" style={{ color: "#FF9F43" }}>{LIVE_SIGNAL.volatility}</div>
-                </div>
-              </div>
-              <div className="rounded-xl p-2 flex items-center gap-1.5" style={{ background: "#1A1D35" }}>
-                <Clock size={12} style={{ color: "#4FC3F7" }} />
-                <div>
-                  <div className="text-[7px]" style={{ color: "#636E82" }}>TIME</div>
-                  <div className="text-[9px] font-bold" style={{ color: "#4FC3F7" }}>{LIVE_SIGNAL.time}</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Action buttons */}
-            <div className="flex gap-2 mt-3">
-              <button className="flex-1 py-2.5 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1.5"
-                style={{ background: "linear-gradient(90deg, #7C6FF7, #A29BFE)", color: "#fff" }}>
-                <BarChart2 size={12} /> View Full Analysis
+            {/* Buttons */}
+            <div style={{ display: "flex", gap: 10 }}>
+              <button style={{
+                flex: 1, padding: "11px 0", borderRadius: 12, border: "none",
+                background: "linear-gradient(90deg,#6C5CE7,#A29BFE)",
+                color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+              }}>
+                <BarChart2 size={13} /> View Full Analysis ↗
               </button>
-              <button className="px-4 py-2.5 rounded-xl text-[11px] font-bold flex items-center gap-1.5"
-                style={{ background: "#1E2240", color: "#A0AEC0", border: "1px solid rgba(255,255,255,0.08)" }}>
-                <Share2 size={12} /> Share
+              <button style={{
+                padding: "11px 16px", borderRadius: 12,
+                background: CARD2, border: `1px solid ${BORDER}`,
+                color: TEXT2, fontSize: 12, fontWeight: 700, cursor: "pointer",
+                display: "flex", alignItems: "center", gap: 6,
+              }}>
+                <Share2 size={13} /> Share Signal
               </button>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Market Overview */}
-      <div className="px-4 mb-4">
-        <div className="rounded-2xl overflow-hidden" style={{ background: "#141628", border: "1px solid rgba(255,255,255,0.06)" }}>
-          <div className="flex items-center justify-between px-4 pt-4 pb-2">
-            <span className="text-[12px] font-bold text-white tracking-wide">MARKET OVERVIEW</span>
-            <div className="flex gap-1">
-              {TFS.map(tf => (
-                <button key={tf} onClick={() => setActiveTF(tf)}
-                  className="text-[9px] font-bold px-2 py-1 rounded-lg transition-all"
-                  style={activeTF === tf
-                    ? { background: "#7C6FF7", color: "#fff" }
-                    : { background: "#1E2240", color: "#636E82" }}>
-                  {tf}
-                </button>
+      {/* ── MARKET OVERVIEW ──────────────────────────────────────── */}
+      <div style={{ margin: "0 18px 14px" }}>
+        <div style={{ background: CARD, borderRadius: 20, overflow: "hidden", border: `1px solid ${BORDER}` }}>
+          {/* header */}
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "14px 16px 10px",
+          }}>
+            <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: "0.06em" }}>MARKET OVERVIEW</span>
+            <div style={{ display: "flex", gap: 4 }}>
+              {TFS.map(t => (
+                <button key={t} onClick={() => setTF(t)} style={{
+                  fontSize: 9, fontWeight: 700, padding: "4px 8px", borderRadius: 7, border: "none",
+                  background: tf === t ? PURPLE : CARD2,
+                  color: tf === t ? "#fff" : MUTED, cursor: "pointer",
+                }}>{t}</button>
               ))}
             </div>
           </div>
 
-          <div className="px-4 pb-1">
-            <div className="text-[11px] font-bold text-white">EUR/USD • {activeTF}</div>
-            <div className="text-[10px]" style={{ color: "#00C896" }}>1.08234 +0.00124 (+0.11%)</div>
+          <div style={{ padding: "0 14px 4px" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: TEXT }}>EUR/USD • {tf}</div>
+            <div style={{ fontSize: 10, color: GREEN }}>1.08234 +0.00124 (+0.11%)</div>
           </div>
 
-          <div className="px-3 py-2">
-            <CandlestickChart />
-          </div>
+          <div style={{ padding: "6px 12px 4px" }}><CandleChart /></div>
 
-          {/* Time labels */}
-          <div className="flex justify-between px-4 pb-2">
-            {["18:00","21:00","28","03:00","06:00","09:00","12:00"].map(t => (
-              <span key={t} className="text-[8px]" style={{ color: "#636E82" }}>{t}</span>
+          <div style={{
+            display: "flex", justifyContent: "space-between",
+            padding: "2px 16px 8px",
+          }}>
+            {TIME_LABELS.map(t => (
+              <span key={t} style={{ fontSize: 8, color: MUTED }}>{t}</span>
             ))}
           </div>
 
           {/* Indicators */}
-          <div className="grid grid-cols-4 gap-2 px-4 pb-4" style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}>
-            <div className="pt-3">
-              <div className="text-[8px] mb-0.5" style={{ color: "#636E82" }}>RSI (14)</div>
-              <div className="text-[11px] font-bold text-white">61.45</div>
-              <div className="mt-1 h-5">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={[45,52,48,58,55,61,59,65,62,61].map((v,i)=>({i,v}))}>
-                    <Line type="monotone" dataKey="v" stroke="#7C6FF7" strokeWidth={1} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
+          <div style={{
+            display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10,
+            padding: "10px 16px 14px",
+            borderTop: `1px solid ${BORDER}`,
+          }}>
+            {[
+              { lbl: "RSI (14)", val: "61.45",   d: [45,52,48,58,55,61,59,65,62,61], col: PURPLE },
+              { lbl: "MACD",     val: "0.00045", d: [-2,-1,0,1,2,3,4,5,4,5],         col: BLUE   },
+            ].map(ind => (
+              <div key={ind.lbl}>
+                <div style={{ fontSize: 8, color: MUTED, marginBottom: 2 }}>{ind.lbl}</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: TEXT }}>{ind.val}</div>
+                <div style={{ height: 22, marginTop: 3 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={ind.d.map((v,i)=>({i,v}))}>
+                      <Line type="monotone" dataKey="v" stroke={ind.col} strokeWidth={1.2} dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            ))}
+            <div>
+              <div style={{ fontSize: 8, color: MUTED, marginBottom: 2 }}>TREND</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: GREEN }}>BULLISH</span>
+                <ArrowUpRight size={10} color={GREEN} />
               </div>
             </div>
-            <div className="pt-3">
-              <div className="text-[8px] mb-0.5" style={{ color: "#636E82" }}>MACD</div>
-              <div className="text-[11px] font-bold text-white">0.00045</div>
-              <div className="mt-1 h-5">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={[-2,-1,0,1,2,3,4,5,4,5].map((v,i)=>({i,v}))}>
-                    <Line type="monotone" dataKey="v" stroke="#4FC3F7" strokeWidth={1} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-            <div className="pt-3">
-              <div className="text-[8px] mb-0.5" style={{ color: "#636E82" }}>TREND</div>
-              <div className="flex items-center gap-0.5">
-                <span className="text-[11px] font-bold" style={{ color: "#00C896" }}>BULLISH</span>
-                <ArrowUpRight size={10} style={{ color: "#00C896" }} />
-              </div>
-            </div>
-            <div className="pt-3">
-              <div className="text-[8px] mb-0.5" style={{ color: "#636E82" }}>SENTIMENT</div>
-              <div className="text-[10px] font-bold" style={{ color: "#00C896" }}>POSITIVE</div>
-              <SentimentGauge value={75} />
+            <div>
+              <div style={{ fontSize: 8, color: MUTED, marginBottom: 2 }}>SENTIMENT</div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: GREEN }}>POSITIVE</div>
+              <Gauge />
             </div>
           </div>
         </div>
       </div>
 
-      {/* Recent Signals */}
-      <div className="px-4 mb-24">
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-[12px] font-bold text-white tracking-wide">RECENT SIGNALS</span>
-          <button className="text-[10px] font-bold" style={{ color: "#7C6FF7" }}>View All</button>
+      {/* ── RECENT SIGNALS ───────────────────────────────────────── */}
+      <div style={{ margin: "0 18px 110px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: "0.06em" }}>RECENT SIGNALS</span>
+          <span style={{ fontSize: 10, color: PURPLE, fontWeight: 700 }}>View All</span>
         </div>
-        <div className="flex flex-col gap-2">
-          {RECENT_SIGNALS.map((sig, i) => (
-            <div key={i} className="rounded-2xl px-4 py-3"
-              style={{ background: "#141628", border: "1px solid rgba(255,255,255,0.06)" }}>
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-full flex items-center justify-center text-xl flex-shrink-0"
-                  style={{ background: "#1E2240" }}>
-                  {FLAG[sig.pair]}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[12px] font-bold text-white">{sig.pair}</span>
-                    <span className={`text-[10px] font-black px-2.5 py-1 rounded-lg`}
-                      style={sig.result === "WIN"
-                        ? { background: "#00C89618", color: "#00C896", border: "1px solid #00C89633" }
-                        : { background: "#FF475718", color: "#FF4757", border: "1px solid #FF475733" }}>
-                      {sig.result}
-                    </span>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {RECENT.map((sig, i) => (
+            <div key={i} style={{
+              background: CARD, borderRadius: 16, padding: "12px 14px",
+              border: `1px solid ${BORDER}`,
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <FlagCircle pair={sig.pair} size={38} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: TEXT }}>{sig.pair}</span>
+                    <span style={{
+                      fontSize: 10, fontWeight: 800, padding: "3px 10px", borderRadius: 7,
+                      background: sig.result === "WIN" ? `${GREEN}18` : `${RED}18`,
+                      color: sig.result === "WIN" ? GREEN : RED,
+                      border: `1px solid ${sig.result === "WIN" ? GREEN : RED}44`,
+                    }}>{sig.result}</span>
                   </div>
-                  <div className="text-[9px] mt-0.5" style={{ color: "#636E82" }}>{sig.date}</div>
-                  <div className="flex items-center gap-2 mt-1.5">
-                    <div className="flex items-center gap-0.5">
+                  <div style={{ fontSize: 9, color: MUTED, marginTop: 2 }}>{sig.date}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
                       {sig.dir === "BUY"
-                        ? <ArrowUpRight size={11} style={{ color: "#00C896" }} />
-                        : <ArrowDownRight size={11} style={{ color: "#FF4757" }} />}
-                      <span className="text-[10px] font-bold"
-                        style={{ color: sig.dir === "BUY" ? "#00C896" : "#FF4757" }}>{sig.dir}</span>
+                        ? <ArrowUpRight size={12} color={GREEN} />
+                        : <ArrowDownRight size={12} color={RED} />}
+                      <span style={{ fontSize: 10, fontWeight: 700,
+                        color: sig.dir === "BUY" ? GREEN : RED }}>{sig.dir}</span>
                     </div>
-                    <div className="flex gap-3">
-                      {[
-                        { l: "Entry Price", v: sig.entry.toFixed(sig.pair === "XAU/USD" ? 2 : 5) },
-                        { l: "Take Profit", v: sig.tp.toFixed(sig.pair === "XAU/USD" ? 2 : 5) },
-                        { l: "Stop Loss",   v: sig.sl.toFixed(sig.pair === "XAU/USD" ? 2 : 5) },
-                      ].map(p => (
-                        <div key={p.l}>
-                          <div className="text-[7px]" style={{ color: "#636E82" }}>{p.l}</div>
-                          <div className="text-[9px] font-semibold text-white">{p.v}</div>
-                        </div>
-                      ))}
-                    </div>
+                    {[
+                      { l: "Entry Price", v: sig.entry },
+                      { l: "Take Profit", v: sig.tp },
+                      { l: "Stop Loss",   v: sig.sl },
+                    ].map(p => (
+                      <div key={p.l}>
+                        <div style={{ fontSize: 7.5, color: MUTED }}>{p.l}</div>
+                        <div style={{ fontSize: 9.5, fontWeight: 600, color: TEXT }}>{p.v}</div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -503,19 +633,30 @@ export function Mobile() {
         </div>
       </div>
 
-      {/* Bottom Nav */}
-      <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-[390px] px-2 pb-4 pt-2"
-        style={{ background: "linear-gradient(to top, #0A0C1A 80%, transparent)" }}>
-        <div className="flex justify-around items-center rounded-2xl px-2 py-2"
-          style={{ background: "#141628", border: "1px solid rgba(255,255,255,0.08)" }}>
+      {/* ── BOTTOM NAV ───────────────────────────────────────────── */}
+      <div style={{
+        position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)",
+        width: 390, padding: "6px 12px 18px",
+        background: `linear-gradient(to top, ${BG} 70%, transparent)`,
+      }}>
+        <div style={{
+          display: "flex", justifyContent: "space-around",
+          background: CARD, borderRadius: 20, padding: "8px 4px",
+          border: `1px solid ${BORDER}`,
+          boxShadow: "0 -4px 24px rgba(0,0,0,0.4)",
+        }}>
           {NAV.map((n, i) => (
-            <button key={n.label} onClick={() => setActiveNav(i)}
-              className="flex flex-col items-center gap-1 px-3 py-1.5 rounded-xl transition-all"
-              style={activeNav === i ? { background: "#7C6FF718" } : {}}>
-              <n.icon size={18}
-                style={{ color: activeNav === i ? "#7C6FF7" : "#636E82" }} />
-              <span className="text-[9px] font-semibold"
-                style={{ color: activeNav === i ? "#7C6FF7" : "#636E82" }}>{n.label}</span>
+            <button key={n.label} onClick={() => setNav(i)} style={{
+              display: "flex", flexDirection: "column", alignItems: "center",
+              gap: 4, padding: "6px 14px", borderRadius: 12, border: "none",
+              background: nav === i ? `${PURPLE}18` : "transparent",
+              cursor: "pointer",
+            }}>
+              <n.icon size={19} color={nav === i ? PURPLE : MUTED} />
+              <span style={{
+                fontSize: 9, fontWeight: 700,
+                color: nav === i ? PURPLE : MUTED,
+              }}>{n.label}</span>
             </button>
           ))}
         </div>
