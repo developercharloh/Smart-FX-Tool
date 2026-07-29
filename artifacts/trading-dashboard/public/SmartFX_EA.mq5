@@ -41,13 +41,19 @@
 //  • Daily loss circuit breaker enforced server-side.
 //    EA also enforces locally as a second safety layer.
 //
-//  CHANGELOG v4.1
+//  CHANGELOG v4.2
 //  ──────────────
 //  • ONE trade at a time — hard guard in FetchAndTrade + ProcessForceQueue
 //  • Broker lot sanity check — skips if broker min > 50× requested lots
 //  • SL/TP validated before every order (rejects collapsed/invalid stops)
 //  • JPY pair SL/TP collapse fix (min pip distance enforced server-side)
 //  • entry = currentPrice — honest R:R and lot sizing for market orders
+//  • MinProfitClose ($1 default) — closes trade at $1 floating profit
+//  • After ANY close (profit or SL): wait for a NEW signal on a DIFFERENT
+//    currency pair.  Same pair can trade again later if the scanner
+//    generates a fresh signal for it.
+//  • Timeframe-agnostic execution — EA respects whatever TF the signal
+//    specifies (M15, H1, etc.); SL/TP are already scaled by the server.
 //  • Manual Execute button also obeys 1-trade rule
 //  • maxOpenTrades default changed to 1
 //
@@ -417,7 +423,8 @@ void FetchAndTrade()
 
    if (placed)
    {
-      g_openSignalId = sigId;   // track for re-entry after close
+      g_openSignalId  = sigId;   // track for close reporting
+      g_lastClosedSym = "";      // new pair opened — clear symbol cooldown
       g_totalTrades++;
       Print("SmartFX: Market order placed — ticket ", g_trade.ResultOrder(),
             " | ", dir, " ", symbol, " @ market",
@@ -519,7 +526,8 @@ void ProcessForceQueue()
 
    if (placed)
    {
-      g_openSignalId = sigId;   // track for re-entry after close
+      g_openSignalId  = sigId;   // track for close reporting
+      g_lastClosedSym = "";      // new pair opened — clear symbol cooldown
       g_totalTrades++;
       Print("SmartFX MANUAL: ticket ", g_trade.ResultOrder(),
             " | ", dir, " ", symbol, " Lots:", DoubleToString(lots, 2));
@@ -677,28 +685,19 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
    ReportTrade(ticket, sym, dir, 0, 0, 0, 0, g_openSignalId, 0, "",
                "CLOSED", closePrice, profit);
 
-   if (profit >= 0)
-   {
-      // ── Profitable close (MinProfitClose or TP hit) ──────────────
-      // Reset last-signal tracker so the EA re-fetches on next tick.
-      // If the signal is still alive on the server the EA re-enters
-      // the same direction automatically.  If it has expired the EA
-      // simply waits for the next scanner signal.
-      g_lastSignalId  = "0";
-      g_lastClosedSym = "";          // no symbol cooldown — re-enter freely
-      Print("SmartFX: Re-entry armed — will re-check signal on next tick");
-   }
-   else
-   {
-      // ── Loss (SL hit) ────────────────────────────────────────────
-      // Server already deleted the signal for a negative close.
-      // Keep g_lastSignalId so we don't immediately re-enter a bad signal.
-      // Wait for the scanner to generate a fresh signal.
-      g_lastClosedSym = sym;
-      Print("SmartFX: SL hit — waiting for next signal on ", sym);
-   }
+   // ── After ANY close: wait for a NEW signal on a DIFFERENT pair ──
+   // g_lastClosedSym blocks immediate re-entry on the same symbol.
+   // The same pair can appear again later if the scanner generates
+   // a fresh signal for it — the EA will take that trade normally.
+   // g_lastClosedSym is cleared the moment a trade on a different
+   // pair is successfully placed.
+   g_lastSignalId  = "0";       // look for the next queued signal
+   g_lastClosedSym = sym;       // skip this pair on the next poll
+   g_openSignalId  = "";
 
-   g_openSignalId = "";
+   Print("SmartFX: Trade closed [", (profit >= 0 ? "PROFIT" : "LOSS"),
+         "] P&L:$", DoubleToString(profit, 2),
+         " — skipping ", sym, " next poll, waiting for a different pair");
    RefreshComment();
 }
 
