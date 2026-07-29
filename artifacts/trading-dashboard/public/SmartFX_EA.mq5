@@ -60,15 +60,17 @@
 
 //── Inputs ─────────────────────────────────────────────────────────
 input string  InpApiUrl          = "https://smart-fx-tool.site"; // API base URL
-input double  InpLotSize         = 0.01;     // Fallback lot size (overridden by server risk calc)
+input double  InpLotSize         = 0.01;     // Default lot size (0.01)
 input int     InpMagicNumber     = 20260725; // Magic number (unique per EA instance)
 input int     InpMinConfidence   = 30;       // Min signal confidence % (overridden by dashboard)
 input int     InpPollSeconds     = 10;       // Poll interval in seconds
+input double  InpMinProfitClose  = 1.0;      // Close trade when profit >= $1, then re-enter same signal
 
 //── Globals ─────────────────────────────────────────────────────────
 CTrade   g_trade;
 
 string   g_lastSignalId    = "0";
+string   g_openSignalId    = "";      // signal ID of the currently open trade
 string   g_lastClosedSym   = "";
 int      g_totalTrades     = 0;
 bool     g_dailyStopped    = false;
@@ -105,11 +107,12 @@ string SYN_NAME[] = {
 //+------------------------------------------------------------------+
 //| Effective-value helpers — dashboard setting wins over EA input    |
 //+------------------------------------------------------------------+
-double LotSize()        { return (g_setLotSize  >= 0.01) ? g_setLotSize  : InpLotSize;      }
-int    MinConf()        { return (g_setMinConf  >= 1)    ? g_setMinConf  : InpMinConfidence; }
-double ProfitTarget()   { return g_setProfitTarget;   }
-double LossLimit()      { return g_setLossLimit;      }
-double MinProfitClose() { return g_setMinProfitClose; }
+double LotSize()        { return (g_setLotSize  >= 0.01) ? g_setLotSize  : InpLotSize;        }
+int    MinConf()        { return (g_setMinConf  >= 1)    ? g_setMinConf  : InpMinConfidence;   }
+double ProfitTarget()   { return g_setProfitTarget; }
+double LossLimit()      { return g_setLossLimit;    }
+// Dashboard setting wins; if server has it disabled (0), fall back to EA input ($1 default)
+double MinProfitClose() { return (g_setMinProfitClose > 0) ? g_setMinProfitClose : InpMinProfitClose; }
 int    MaxOpenTrades()  { return (g_setMaxOpenTrades >= 1) ? g_setMaxOpenTrades : 1; }
 
 //+------------------------------------------------------------------+
@@ -414,6 +417,7 @@ void FetchAndTrade()
 
    if (placed)
    {
+      g_openSignalId = sigId;   // track for re-entry after close
       g_totalTrades++;
       Print("SmartFX: Market order placed — ticket ", g_trade.ResultOrder(),
             " | ", dir, " ", symbol, " @ market",
@@ -515,6 +519,7 @@ void ProcessForceQueue()
 
    if (placed)
    {
+      g_openSignalId = sigId;   // track for re-entry after close
       g_totalTrades++;
       Print("SmartFX MANUAL: ticket ", g_trade.ResultOrder(),
             " | ", dir, " ", symbol, " Lots:", DoubleToString(lots, 2));
@@ -666,13 +671,34 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
    string dir        = (dealType == (long)DEAL_TYPE_BUY) ? "BUY" : "SELL";
    ulong  ticket     = (ulong)HistoryDealGetInteger(trans.deal, DEAL_ORDER);
 
-   g_lastClosedSym = sym;
-
    Print("SmartFX: Closed [", (profit >= 0 ? "PROFIT" : "LOSS"), "] ",
          sym, " P&L:$", DoubleToString(profit, 2));
 
-   ReportTrade(ticket, sym, dir, 0, 0, 0, 0, "", 0, "",
+   ReportTrade(ticket, sym, dir, 0, 0, 0, 0, g_openSignalId, 0, "",
                "CLOSED", closePrice, profit);
+
+   if (profit >= 0)
+   {
+      // ── Profitable close (MinProfitClose or TP hit) ──────────────
+      // Reset last-signal tracker so the EA re-fetches on next tick.
+      // If the signal is still alive on the server the EA re-enters
+      // the same direction automatically.  If it has expired the EA
+      // simply waits for the next scanner signal.
+      g_lastSignalId  = "0";
+      g_lastClosedSym = "";          // no symbol cooldown — re-enter freely
+      Print("SmartFX: Re-entry armed — will re-check signal on next tick");
+   }
+   else
+   {
+      // ── Loss (SL hit) ────────────────────────────────────────────
+      // Server already deleted the signal for a negative close.
+      // Keep g_lastSignalId so we don't immediately re-enter a bad signal.
+      // Wait for the scanner to generate a fresh signal.
+      g_lastClosedSym = sym;
+      Print("SmartFX: SL hit — waiting for next signal on ", sym);
+   }
+
+   g_openSignalId = "";
    RefreshComment();
 }
 

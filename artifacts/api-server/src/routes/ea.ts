@@ -360,8 +360,12 @@ router.post("/trade", async (req, res) => {
         closedAt:   now,
       }).where(eq(eaTradesTable.id, id));
 
-      // Signal results are in — delete it so it disappears from the system
-      if (signalId) {
+      // ── Re-entry loop: keep signal alive on close so EA can re-enter ──
+      // Signal only expires via the 24h scanner or when the user deletes it.
+      // Exception: delete signal on SL hit (negative profit) to avoid
+      // immediately re-entering a stopped-out losing trade.
+      const closedProfit = profit != null ? Number(profit) : null;
+      if (signalId && closedProfit !== null && closedProfit < 0) {
         await db.delete(signalsTable)
           .where(eq(signalsTable.id, Number(signalId)))
           .catch(() => {});
@@ -385,14 +389,9 @@ router.post("/trade", async (req, res) => {
         openedAt:   now,
       }).onConflictDoNothing();
 
-      // Signal has been taken — delete it immediately so queue stays clean
-      if (signalId) {
-        await db.delete(signalsTable)
-          .where(eq(signalsTable.id, Number(signalId)))
-          .catch(() => {});
-      }
-
-      // Record for re-entry tracking
+      // ── Re-entry loop: do NOT delete signal on open ──
+      // Signal stays alive so after a $1 close the EA can re-enter same signal.
+      // Record for cooldown/duplicate tracking only.
       recordEAExecution(String(symbol), dir, Number(openPrice || 0));
     }
 
