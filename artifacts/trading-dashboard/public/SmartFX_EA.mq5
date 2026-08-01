@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                            SmartFX_EA.mq5        |
-//|                       SmartFX AI Trading System v4.2             |
+//|                       SmartFX AI Trading System v4.3             |
 //|                       https://smart-fx-tool.site                 |
 //+------------------------------------------------------------------+
 //
@@ -14,7 +14,7 @@
 //       ✔  Allow WebRequests for listed URLs
 //       Add URL:  https://smart-fx-tool.site
 //  4. Drag EA onto any chart. Configure inputs then click OK.
-//  5. Experts log tab should show "SmartFX EA v4.2 started".
+//  5. Experts log tab should show "SmartFX EA v4.3 started".
 //
 //  WHAT IT DOES (v4.1 — Queue-Based Execution)
 //  ─────────────────────────────────────────────────
@@ -41,7 +41,7 @@
 //  • Daily loss circuit breaker enforced server-side.
 //    EA also enforces locally as a second safety layer.
 //
-//  CHANGELOG v4.2
+//  CHANGELOG v4.3
 //  ──────────────
 //  • ONE trade at a time — hard guard in FetchAndTrade + ProcessForceQueue
 //  • Broker lot sanity check — skips if broker min > 50× requested lots
@@ -59,7 +59,7 @@
 //
 //+------------------------------------------------------------------+
 #property copyright "SmartFX AI"
-#property version   "4.20"
+#property version   "4.30"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -151,7 +151,7 @@ int OnInit()
    g_serverHalted = false;
 
    EventSetTimer(InpPollSeconds);
-   Print("SmartFX EA v4.2 started | Balance: ",
+   Print("SmartFX EA v4.3 started | Balance: ",
          DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2),
          " | API: ", InpApiUrl);
    RefreshComment();
@@ -257,7 +257,7 @@ bool CheckDailyLimits()
    }
 
    g_dailyStopped = true;
-   Comment("SmartFX v4.2 | *** STOPPED — ", reason, " ***");
+   Comment("SmartFX v4.3 | *** STOPPED — ", reason, " ***");
    return true;
 }
 
@@ -349,8 +349,10 @@ void FetchAndTrade()
    string pair  = JsStr(json, "pair");
    string dir   = JsStr(json, "direction");
    double entry = JsNum(json, "entry");
-   double sl    = JsNum(json, "sl");
-   double tp    = JsNum(json, "tp");
+   double sl    = JsNum(json, "sl");       // reference only — recalculated below
+   double tp    = JsNum(json, "tp");       // reference only — recalculated below
+   double slDist = JsNum(json, "slDist"); // distance in price units from fill price
+   double tpDist = JsNum(json, "tpDist"); // distance in price units from fill price
    int    conf  = (int)JsNum(json, "confidence");
    string tf    = JsStr(json, "timeframe");
    double srvLots = JsNum(json, "lots");    // risk-calculated lots from server
@@ -377,16 +379,36 @@ void FetchAndTrade()
    double lots    = NormalizeLots(symbol, rawLots);
    if (lots <= 0) { g_lastSignalId = sigId; return; }
 
-   // ── SL/TP sanity check — reject collapsed/invalid stops ─────────
-   // BUY executes at Ask; SELL executes at Bid — validate against the right price.
+   // ── Recalculate SL/TP from live market price ─────────────────────────────
+   // The signal entry is from Yahoo Finance (~15 min delayed). Using its
+   // absolute sl/tp with the real MT5 fill price produces the wrong R:R.
+   // Instead we anchor the DISTANCE from the signal to curAsk / curBid.
    double curBid  = SymbolInfoDouble(symbol, SYMBOL_BID);
    double curAsk  = SymbolInfoDouble(symbol, SYMBOL_ASK);
    double minStop = SymbolInfoDouble(symbol, SYMBOL_POINT)
                     * (double)SymbolInfoInteger(symbol, SYMBOL_TRADE_STOPS_LEVEL)
                     * 2;   // 2× broker minimum stop distance
 
+   if (slDist > 0 && tpDist > 0)
+   {
+      // Prefer relative distances — anchored to live price
+      if (dir == "BUY")
+      {
+         sl = curAsk - slDist;
+         tp = curAsk + tpDist;
+      }
+      else
+      {
+         sl = curBid + slDist;
+         tp = curBid - tpDist;
+      }
+      Print("SmartFX: SL/TP recalculated from live price",
+            " slDist:", DoubleToString(slDist, 5), " tpDist:", DoubleToString(tpDist, 5),
+            " → SL:", DoubleToString(sl, 5), " TP:", DoubleToString(tp, 5));
+   }
+
    if (sl <= 0 || tp <= 0)
-   { Print("SmartFX: SKIP signal #", sigId, " — zero SL/TP (JSON parse failure?) SL:", sl, " TP:", tp);
+   { Print("SmartFX: SKIP signal #", sigId, " — zero SL/TP SL:", sl, " TP:", tp);
      g_lastSignalId = sigId; return; }
 
    if (dir == "BUY")
@@ -720,7 +742,7 @@ void RefreshComment()
    if (LossLimit()       > 0) ex += StringFormat(" Limit:-$%.0f", LossLimit());
    if (MaxOpenTrades()   > 0) ex += StringFormat(" MaxTrades:%d", MaxOpenTrades());
 
-   Comment("SmartFX v4.2 | ", st,
+   Comment("SmartFX v4.3 | ", st,
            " | Trades:", g_totalTrades,
            " | P&L:$", DoubleToString(pnl, 2),
            " | Lots:", DoubleToString(LotSize(), 2), ex);

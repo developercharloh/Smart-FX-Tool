@@ -223,6 +223,14 @@ router.get("/signal", async (req, res) => {
       lots = settings.lotSize; // fall back to fixed lot size
     }
 
+    // ── Relative distances — EA applies these to its actual fill price ──────
+    // The signal entry comes from Yahoo Finance (~15 min delayed).  If the EA
+    // used absolute sl/tp it would get a completely different R:R from what the
+    // dashboard shows.  Instead, send the DISTANCE in price units and let the
+    // EA anchor them to the real-time Ask/Bid at execution time.
+    const slDist = parseFloat(Math.abs(signal.entry - signal.stopLoss).toFixed(8));
+    const tpDist = parseFloat(Math.abs(signal.takeProfit - signal.entry).toFixed(8));
+
     return res.json({
       id:         String(signal.id),
       pair:       signal.pair,
@@ -230,6 +238,8 @@ router.get("/signal", async (req, res) => {
       entry:      signal.entry,
       sl:         signal.stopLoss,
       tp:         signal.takeProfit,
+      slDist,   // EA MUST use these — distance from fill price, not absolute level
+      tpDist,
       confidence: signal.confidenceScore,
       timeframe:  signal.timeframe,
       rr:         signal.riskRewardRatio ?? 0,
