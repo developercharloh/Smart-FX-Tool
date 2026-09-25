@@ -1,0 +1,15 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "PORT=3000 BASE_PATH=/ pnpm run build",
+  "outputDirectory": "dist/public",
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://smart-fx-tool-api-server-nu.vercel.app/api/:path*"
+    },
+    {
+      "source": "/:path*",
+      "destination": "/index.html"
+    }
+  ]
+}
