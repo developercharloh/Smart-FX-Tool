@@ -3,17 +3,15 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: Smart Forex Trading Analysis API
+  description: API specification
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
-  - name: signals
-    description: Trading signal operations
-  - name: pairs
-    description: Forex pair operations
+  - name: markets
+    description: Public Binance market data and analysis-only reversal signals
 paths:
   /healthz:
     get:
@@ -28,142 +26,110 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
-
-  /signals:
+  /markets/scanner:
     get:
-      operationId: listSignals
-      tags: [signals]
-      summary: List all trading signals
+      operationId: getMarketScanner
+      tags: [markets]
+      summary: Scan Binance markets for potential reversals
       parameters:
-        - name: pair
+        - $ref: "#/components/parameters/MarketTypeQuery"
+        - name: primaryTimeframe
           in: query
-          required: false
           schema:
-            type: string
-        - name: signal
+            $ref: "#/components/schemas/Timeframe"
+          description: Candlestick interval used for the main signal.
+        - name: confirmationTimeframe
           in: query
-          required: false
           schema:
-            type: string
-            enum: [BUY, SELL]
-        - name: timeframe
+            $ref: "#/components/schemas/Timeframe"
+        - name: trendTimeframe
           in: query
-          required: false
           schema:
-            type: string
-      responses:
-        "200":
-          description: List of signals
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Signal"
-    post:
-      operationId: createSignal
-      tags: [signals]
-      summary: Create a new trading signal
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/SignalInput"
-      responses:
-        "201":
-          description: Created signal
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Signal"
-
-  /signals/{id}:
-    get:
-      operationId: getSignal
-      tags: [signals]
-      summary: Get a specific signal
-      parameters:
-        - name: id
-          in: path
-          required: true
+            $ref: "#/components/schemas/Timeframe"
+        - name: minimumQuoteVolume
+          in: query
+          schema:
+            type: number
+            minimum: 0
+            default: 10000000
+        - name: limit
+          in: query
           schema:
             type: integer
+            minimum: 1
+            maximum: 30
+            default: 20
+        - name: search
+          in: query
+          schema:
+            type: string
+            maxLength: 20
       responses:
         "200":
-          description: Signal details
+          description: Current scanner results calculated from public Binance market data.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Signal"
-        "404":
-          description: Not found
+                $ref: "#/components/schemas/ScannerSnapshot"
+        "502":
+          description: Binance public market-data service is unavailable.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-    delete:
-      operationId: deleteSignal
-      tags: [signals]
-      summary: Delete a signal
+                $ref: "#/components/schemas/MarketError"
+  /markets/analysis:
+    get:
+      operationId: getMarketAnalysis
+      tags: [markets]
+      summary: Get candle history and detailed analysis for a Binance symbol
       parameters:
-        - name: id
-          in: path
+        - name: symbol
+          in: query
           required: true
           schema:
-            type: integer
-      responses:
-        "204":
-          description: Deleted
-
-  /signals/analyze:
-    post:
-      operationId: analyzeSignal
-      tags: [signals]
-      summary: Run live analysis on a forex pair
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/AnalyzeRequest"
+            type: string
+            pattern: "^[A-Z0-9]{2,24}$"
+        - $ref: "#/components/parameters/MarketTypeQuery"
+        - name: primaryTimeframe
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/Timeframe"
+        - name: confirmationTimeframe
+          in: query
+          schema:
+            $ref: "#/components/schemas/Timeframe"
+        - name: trendTimeframe
+          in: query
+          schema:
+            $ref: "#/components/schemas/Timeframe"
       responses:
         "200":
-          description: Analysis result
+          description: Candles, calculated indicators, structure, and order-book data.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AnalysisResult"
-
-  /signals/dashboard-summary:
-    get:
-      operationId: getDashboardSummary
-      tags: [signals]
-      summary: Dashboard statistics summary
-      responses:
-        "200":
-          description: Summary stats
+                $ref: "#/components/schemas/MarketAnalysis"
+        "400":
+          description: Invalid or unsupported symbol.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DashboardSummary"
-
-  /pairs:
-    get:
-      operationId: listPairs
-      tags: [pairs]
-      summary: List supported forex pairs
-      responses:
-        "200":
-          description: List of forex pairs
+                $ref: "#/components/schemas/MarketError"
+        "502":
+          description: Binance public market-data service is unavailable.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/ForexPair"
-
+                $ref: "#/components/schemas/MarketError"
 components:
+  parameters:
+    MarketTypeQuery:
+      name: market
+      in: query
+      schema:
+        $ref: "#/components/schemas/MarketType"
+      description: Spot or USDⓈ-M futures public market data. No account access or orders.
   schemas:
     HealthStatus:
       type: object
@@ -172,285 +138,225 @@ components:
           type: string
       required:
         - status
-
-    ErrorResponse:
-      type: object
-      properties:
-        error:
-          type: string
-      required:
-        - error
-
+    MarketType:
+      type: string
+      enum: [spot, usdm]
+      default: spot
+    Timeframe:
+      type: string
+      enum: ["1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"]
+      default: "5m"
+    Trend:
+      type: string
+      enum: [BULLISH, BEARISH, NEUTRAL]
     Signal:
+      type: string
+      enum:
+        - NO SIGNAL
+        - WATCH
+        - DEVELOPING BULLISH
+        - STRONG BULLISH
+        - CONFIRMED BULLISH
+        - DEVELOPING BEARISH
+        - STRONG BEARISH
+        - CONFIRMED BEARISH
+        - INVALIDATED
+    ConfidenceLabel:
+      type: string
+      enum: [NO SIGNAL, WEAK, DEVELOPING, STRONG, EXTREME CONFLUENCE]
+    ScannerItem:
       type: object
-      properties:
-        id:
-          type: integer
-        pair:
-          type: string
-        signal:
-          type: string
-          enum: [BUY, SELL]
-        timeframe:
-          type: string
-        entry:
-          type: number
-        stopLoss:
-          type: number
-        takeProfit:
-          type: number
-        confidenceScore:
-          type: integer
-          minimum: 0
-          maximum: 100
-        reasons:
-          type: array
-          items:
-            type: string
-        structureType:
-          type: string
-          enum: [BOS, CHOCH, NONE]
-        trend:
-          type: string
-          enum: [BULLISH, BEARISH, NEUTRAL]
-        hasOrderBlock:
-          type: boolean
-        hasSupportResistance:
-          type: boolean
-        riskRewardRatio:
-          type: number
-        status:
-          type: string
-          enum: [ACTIVE, HIT_TP, HIT_SL, EXPIRED]
-        createdAt:
-          type: string
-          format: date-time
-      required:
-        - id
-        - pair
-        - signal
-        - timeframe
-        - entry
-        - stopLoss
-        - takeProfit
-        - confidenceScore
-        - reasons
-        - structureType
-        - trend
-        - hasOrderBlock
-        - hasSupportResistance
-        - riskRewardRatio
-        - status
-        - createdAt
-
-    SignalInput:
-      type: object
-      properties:
-        pair:
-          type: string
-        signal:
-          type: string
-          enum: [BUY, SELL]
-        timeframe:
-          type: string
-        entry:
-          type: number
-        stopLoss:
-          type: number
-        takeProfit:
-          type: number
-        confidenceScore:
-          type: integer
-          minimum: 0
-          maximum: 100
-        reasons:
-          type: array
-          items:
-            type: string
-        structureType:
-          type: string
-          enum: [BOS, CHOCH, NONE]
-        trend:
-          type: string
-          enum: [BULLISH, BEARISH, NEUTRAL]
-        hasOrderBlock:
-          type: boolean
-        hasSupportResistance:
-          type: boolean
-        riskRewardRatio:
-          type: number
-      required:
-        - pair
-        - signal
-        - timeframe
-        - entry
-        - stopLoss
-        - takeProfit
-        - confidenceScore
-        - reasons
-        - structureType
-        - trend
-        - hasOrderBlock
-        - hasSupportResistance
-        - riskRewardRatio
-
-    AnalyzeRequest:
-      type: object
-      properties:
-        pair:
-          type: string
-        timeframe:
-          type: string
-      required:
-        - pair
-        - timeframe
-
-    AnalysisResult:
-      type: object
-      properties:
-        pair:
-          type: string
-        timeframe:
-          type: string
-        signal:
-          type: string
-          enum: [BUY, SELL, NEUTRAL]
-        entry:
-          type: number
-        stopLoss:
-          type: number
-        takeProfit:
-          type: number
-        confidenceScore:
-          type: integer
-        reasons:
-          type: array
-          items:
-            type: string
-        structureType:
-          type: string
-          enum: [BOS, CHOCH, NONE]
-        trend:
-          type: string
-          enum: [BULLISH, BEARISH, NEUTRAL]
-        hasOrderBlock:
-          type: boolean
-        hasSupportResistance:
-          type: boolean
-        riskRewardRatio:
-          type: number
-        supportZone:
-          type: object
-          properties:
-            high:
-              type: number
-            low:
-              type: number
-          required:
-            - high
-            - low
-        resistanceZone:
-          type: object
-          properties:
-            high:
-              type: number
-            low:
-              type: number
-          required:
-            - high
-            - low
-        orderBlockZone:
-          type: object
-          nullable: true
-          properties:
-            high:
-              type: number
-            low:
-              type: number
-            type:
-              type: string
-              enum: [BULLISH, BEARISH]
-          required:
-            - high
-            - low
-            - type
-      required:
-        - pair
-        - timeframe
-        - signal
-        - entry
-        - stopLoss
-        - takeProfit
-        - confidenceScore
-        - reasons
-        - structureType
-        - trend
-        - hasOrderBlock
-        - hasSupportResistance
-        - riskRewardRatio
-        - supportZone
-        - resistanceZone
-
-    DashboardSummary:
-      type: object
-      properties:
-        totalSignals:
-          type: integer
-        activeSignals:
-          type: integer
-        winRate:
-          type: number
-        avgConfidence:
-          type: number
-        buySignals:
-          type: integer
-        sellSignals:
-          type: integer
-        topPairs:
-          type: array
-          items:
-            type: object
-            properties:
-              pair:
-                type: string
-              count:
-                type: integer
-              winRate:
-                type: number
-            required:
-              - pair
-              - count
-              - winRate
-        recentActivity:
-          type: array
-          items:
-            $ref: "#/components/schemas/Signal"
-      required:
-        - totalSignals
-        - activeSignals
-        - winRate
-        - avgConfidence
-        - buySignals
-        - sellSignals
-        - topPairs
-        - recentActivity
-
-    ForexPair:
-      type: object
-      properties:
-        symbol:
-          type: string
-        base:
-          type: string
-        quote:
-          type: string
-        pip:
-          type: number
-        decimals:
-          type: integer
       required:
         - symbol
-        - base
-        - quote
-        - pip
-        - decimals
+        - baseAsset
+        - quoteAsset
+        - lastPrice
+        - priceChangePercent
+        - quoteVolume
+        - spreadPercent
+        - primaryTimeframe
+        - confirmationTimeframe
+        - trendTimeframe
+        - primaryTrend
+        - confirmationTrend
+        - higherTimeframeTrend
+        - bullishScore
+        - bearishScore
+        - signal
+        - confidence
+        - relativeVolume
+        - rsi
+        - macdState
+        - bullishFactors
+        - bearishFactors
+        - updatedAt
+      properties:
+        symbol: { type: string }
+        baseAsset: { type: string }
+        quoteAsset: { type: string }
+        lastPrice: { type: number }
+        priceChangePercent: { type: number }
+        quoteVolume: { type: number }
+        spreadPercent: { type: ["number", "null"] }
+        primaryTimeframe: { $ref: "#/components/schemas/Timeframe" }
+        confirmationTimeframe: { $ref: "#/components/schemas/Timeframe" }
+        trendTimeframe: { $ref: "#/components/schemas/Timeframe" }
+        primaryTrend: { $ref: "#/components/schemas/Trend" }
+        confirmationTrend: { $ref: "#/components/schemas/Trend" }
+        higherTimeframeTrend: { $ref: "#/components/schemas/Trend" }
+        bullishScore: { type: number, minimum: 0, maximum: 100 }
+        bearishScore: { type: number, minimum: 0, maximum: 100 }
+        signal: { $ref: "#/components/schemas/Signal" }
+        confidence: { $ref: "#/components/schemas/ConfidenceLabel" }
+        relativeVolume: { type: number, minimum: 0 }
+        rsi: { type: ["number", "null"] }
+        macdState: { $ref: "#/components/schemas/Trend" }
+        bullishFactors:
+          type: array
+          items: { type: string }
+        bearishFactors:
+          type: array
+          items: { type: string }
+        updatedAt: { type: string, format: date-time }
+    ScannerSnapshot:
+      type: object
+      required:
+        - market
+        - supportedSymbols
+        - eligibleSymbols
+        - primaryTimeframe
+        - confirmationTimeframe
+        - trendTimeframe
+        - updatedAt
+        - items
+      properties:
+        market: { $ref: "#/components/schemas/MarketType" }
+        supportedSymbols: { type: integer }
+        eligibleSymbols: { type: integer }
+        primaryTimeframe: { $ref: "#/components/schemas/Timeframe" }
+        confirmationTimeframe: { $ref: "#/components/schemas/Timeframe" }
+        trendTimeframe: { $ref: "#/components/schemas/Timeframe" }
+        updatedAt: { type: string, format: date-time }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/ScannerItem" }
+    Candle:
+      type: object
+      required: [openTime, open, high, low, close, volume, closeTime, quoteVolume, tradeCount]
+      properties:
+        openTime: { type: integer }
+        open: { type: number }
+        high: { type: number }
+        low: { type: number }
+        close: { type: number }
+        volume: { type: number }
+        closeTime: { type: integer }
+        quoteVolume: { type: number }
+        tradeCount: { type: integer }
+    IndicatorSet:
+      type: object
+      required:
+        - rsi
+        - ema9
+        - ema20
+        - ema50
+        - ema100
+        - ema200
+        - macd
+        - macdSignal
+        - macdHistogram
+        - atr
+        - vwap
+        - bollingerUpper
+        - bollingerMiddle
+        - bollingerLower
+        - adx
+        - obv
+        - volumeAverage
+        - relativeVolume
+        - momentum
+        - rateOfChange
+        - stochasticRsi
+      properties:
+        rsi: { type: ["number", "null"] }
+        ema9: { type: ["number", "null"] }
+        ema20: { type: ["number", "null"] }
+        ema50: { type: ["number", "null"] }
+        ema100: { type: ["number", "null"] }
+        ema200: { type: ["number", "null"] }
+        macd: { type: ["number", "null"] }
+        macdSignal: { type: ["number", "null"] }
+        macdHistogram: { type: ["number", "null"] }
+        atr: { type: ["number", "null"] }
+        vwap: { type: ["number", "null"] }
+        bollingerUpper: { type: ["number", "null"] }
+        bollingerMiddle: { type: ["number", "null"] }
+        bollingerLower: { type: ["number", "null"] }
+        adx: { type: ["number", "null"] }
+        obv: { type: number }
+        volumeAverage: { type: ["number", "null"] }
+        relativeVolume: { type: number, minimum: 0 }
+        momentum: { type: ["number", "null"] }
+        rateOfChange: { type: ["number", "null"] }
+        stochasticRsi: { type: ["number", "null"] }
+    StructureAnalysis:
+      type: object
+      required: [trend, support, resistance, higherHighs, higherLows, lowerHighs, lowerLows, breakOfStructure]
+      properties:
+        trend: { $ref: "#/components/schemas/Trend" }
+        support: { type: ["number", "null"] }
+        resistance: { type: ["number", "null"] }
+        higherHighs: { type: integer }
+        higherLows: { type: integer }
+        lowerHighs: { type: integer }
+        lowerLows: { type: integer }
+        breakOfStructure: { type: boolean }
+    DivergenceAnalysis:
+      type: object
+      required: [bullish, bearish, indicators]
+      properties:
+        bullish: { type: boolean }
+        bearish: { type: boolean }
+        indicators:
+          type: array
+          items: { type: string }
+    OrderBookLevel:
+      type: object
+      required: [price, quantity]
+      properties:
+        price: { type: number }
+        quantity: { type: number }
+    OrderBookAnalysis:
+      type: object
+      required: [bidVolume, askVolume, imbalance, spreadPercent, bids, asks]
+      properties:
+        bidVolume: { type: number }
+        askVolume: { type: number }
+        imbalance: { type: number }
+        spreadPercent: { type: ["number", "null"] }
+        bids:
+          type: array
+          items: { $ref: "#/components/schemas/OrderBookLevel" }
+        asks:
+          type: array
+          items: { $ref: "#/components/schemas/OrderBookLevel" }
+    MarketAnalysis:
+      type: object
+      required: [market, symbol, analysis, candles, indicators, structure, divergence, orderBook]
+      properties:
+        market: { $ref: "#/components/schemas/MarketType" }
+        symbol: { type: string }
+        analysis: { $ref: "#/components/schemas/ScannerItem" }
+        candles:
+          type: array
+          items: { $ref: "#/components/schemas/Candle" }
+        indicators: { $ref: "#/components/schemas/IndicatorSet" }
+        structure: { $ref: "#/components/schemas/StructureAnalysis" }
+        divergence: { $ref: "#/components/schemas/DivergenceAnalysis" }
+        orderBook: { $ref: "#/components/schemas/OrderBookAnalysis" }
+    MarketError:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+

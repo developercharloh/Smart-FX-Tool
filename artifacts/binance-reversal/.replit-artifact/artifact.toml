@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Reversal Intelligence"
+description = "A real-time, analysis-only Binance market scanner that calculates multi-timeframe technical indicators and transparent potential reversal signals. It does not place orders."
+version = "1.0.0"
+id = "artifacts/binance-reversal"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19539
+
+[services.development]
+run = "pnpm --filter @workspace/binance-reversal run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/binance-reversal", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/binance-reversal/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19539"
+BASE_PATH = "/"

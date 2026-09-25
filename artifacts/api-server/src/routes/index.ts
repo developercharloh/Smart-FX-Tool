@@ -1,26 +1,10 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
-import signalsRouter from "./signals";
-import pairsRouter from "./pairs";
-import newsRouter from "./news";
-import authRouter from "./auth";
-import adminRouter from "./admin";
-import calendarRouter from "./calendar";
-import derivRouter from "./deriv";
-import eaRouter from "./ea";
-import mt5Router from "./mt5";
+import marketsRouter from "./markets";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
-router.use("/signals",  signalsRouter);
-router.use("/pairs",    pairsRouter);
-router.use("/news",     newsRouter);
-router.use("/auth",     authRouter);
-router.use("/admin",    adminRouter);
-router.use("/calendar", calendarRouter);
-router.use("/deriv",    derivRouter);
-router.use("/ea",       eaRouter);
-router.use("/mt5",      mt5Router);
+router.use(marketsRouter);
 
 export default router;

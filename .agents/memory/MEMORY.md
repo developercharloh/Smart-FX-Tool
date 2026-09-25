@@ -1,0 +1,1 @@
+- [Binance public market-data routing](binance-market-data-routing.md) — the official Spot data-only host works where standard Spot and USDⓈ-M hosts are restricted.

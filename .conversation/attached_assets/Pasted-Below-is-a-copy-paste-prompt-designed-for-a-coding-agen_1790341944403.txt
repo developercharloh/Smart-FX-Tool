@@ -1,0 +1,1127 @@
+Below is a copy-paste prompt designed for a coding agent. It builds the system as a Binance-connected reversal intelligence engine first, with execution controls separated so you can test it safely before enabling live trading.
+
+Build a production-ready Binance Reversal Intelligence & Trading Model.
+
+1. CORE OBJECTIVE
+
+Build a model specifically connected to the Binance API that continuously monitors Binance-listed crypto assets and identifies potential:
+
+- Strong Bullish Reversals
+- Strong Bearish Reversals
+- Developing Bullish Reversals
+- Developing Bearish Reversals
+- No-Trade conditions
+
+The primary focus is detecting market reversals, particularly on volatile assets and meme coins, while minimizing false signals.
+
+The system must support:
+
+- Binance Spot market data
+- Binance Futures market data
+- Binance account information
+- Spot trading
+- Futures trading
+- Binance Convert where supported by the official API
+- Real-time WebSocket data
+- Historical market data
+- Backtesting
+- Paper trading
+- Risk management
+- Signal alerts
+- Optional automated execution
+
+Do NOT claim that the model can predict the market with certainty. All signals must be presented as probability/confidence-style analytical signals, not guaranteed outcomes.
+
+---
+
+2. IMPORTANT SAFETY / EXECUTION REQUIREMENT
+
+The application MUST launch in:
+
+ANALYSIS / PAPER-TRADING MODE
+
+by default.
+
+Real-money trading must be disabled unless the user explicitly enables LIVE TRADING.
+
+Create three modes:
+
+1. ANALYSIS
+2. PAPER TRADING
+3. LIVE TRADING
+
+LIVE TRADING must require an explicit confirmation inside the application.
+
+Never expose Binance API secrets to the browser/frontend.
+
+All Binance API requests requiring secrets must be handled server-side.
+
+Never log API secret keys, API signatures, authentication headers, or sensitive account credentials.
+
+---
+
+3. BINANCE CONNECTION
+
+Create a secure Binance integration layer.
+
+Support:
+
+- API key
+- API secret
+- Testnet where applicable
+- Spot account data
+- Futures account data
+- Market data
+- Orders
+- Open positions
+- Balances
+- Trade history
+- Order status
+- WebSocket streams
+
+Use the current official Binance API documentation and current endpoint specifications rather than hard-coding outdated endpoints.
+
+The system must gracefully handle:
+
+- API errors
+- Rate limits
+- WebSocket disconnects
+- Reconnection
+- Authentication failures
+- Invalid symbols
+- Delisted symbols
+- Network failures
+- Order rejection
+- Insufficient balance
+- Minimum order requirements
+
+Implement automatic WebSocket reconnect and subscription restoration.
+
+---
+
+4. MARKET SCANNER
+
+Build a real-time Binance market scanner.
+
+Monitor as many supported Binance symbols as practical without violating Binance API/WebSocket limits.
+
+Prioritize:
+
+- USDT pairs
+- Highly liquid assets
+- Meme coins
+- High-volume assets
+- Assets experiencing unusual volume
+- Assets experiencing significant volatility
+
+Allow filters:
+
+- Minimum 24h volume
+- Minimum price
+- Maximum price
+- Minimum market activity
+- Spot only
+- Futures only
+- Meme coins
+- All supported coins
+
+Do not assume every Binance-listed asset is available on every Binance product.
+
+The scanner must dynamically discover supported symbols rather than relying on a manually maintained list.
+
+---
+
+5. TIMEFRAMES
+
+Analyze multiple timeframes simultaneously:
+
+- 1 minute
+- 3 minutes
+- 5 minutes
+- 15 minutes
+- 30 minutes
+- 1 hour
+- 4 hours
+- 1 day
+
+Allow the user to select:
+
+- Primary timeframe
+- Confirmation timeframe
+- Higher timeframe trend timeframe
+
+Example:
+
+Primary = 5m
+Confirmation = 15m
+Trend = 1h
+
+---
+
+6. MARKET DATA
+
+Collect and process:
+
+- OHLCV
+- Last price
+- Bid/ask
+- Spread
+- Volume
+- Volume change
+- Trade count
+- Order book depth
+- Order book imbalance
+- Recent trades
+- Volatility
+- ATR
+- Funding rate
+- Open interest
+- Liquidations where available
+- Mark price
+- Index price where applicable
+
+Store sufficient historical data for model analysis and backtesting.
+
+---
+
+7. TECHNICAL INDICATOR ENGINE
+
+Create a reusable indicator engine.
+
+Calculate at minimum:
+
+- RSI
+- Stochastic RSI
+- MACD
+- EMA 9
+- EMA 20
+- EMA 50
+- EMA 100
+- EMA 200
+- SMA
+- VWAP
+- ATR
+- Bollinger Bands
+- ADX
+- OBV
+- Volume moving average
+- Momentum
+- Rate of Change
+
+The system must calculate indicators independently from raw market data rather than relying on manually entered values.
+
+---
+
+8. REVERSAL DETECTION ENGINE
+
+This is the core of the project.
+
+Do NOT create a simplistic rule such as:
+
+RSI < 30 = BUY
+
+Instead, detect reversals using multiple independent pieces of evidence.
+
+BULLISH REVERSAL FACTORS
+
+Analyze:
+
+- Oversold conditions
+- RSI bullish divergence
+- Stochastic RSI reversal
+- MACD bullish crossover
+- MACD histogram improvement
+- Price reclaiming EMA
+- Higher-low formation
+- Break of short-term bearish structure
+- Volume expansion
+- Buy-side volume increase
+- Order-book imbalance
+- VWAP reclaim
+- Bollinger Band rejection
+- ATR expansion after compression
+- Selling-volume exhaustion
+- Liquidation flush
+- Open-interest behavior
+- Funding-rate conditions
+- Higher-timeframe support
+- Support-zone reaction
+
+BEARISH REVERSAL FACTORS
+
+Analyze the inverse conditions:
+
+- Overbought conditions
+- RSI bearish divergence
+- Stochastic RSI reversal
+- MACD bearish crossover
+- MACD histogram deterioration
+- Price losing EMA
+- Lower-high formation
+- Break of short-term bullish structure
+- Selling-volume expansion
+- Sell-side order imbalance
+- VWAP rejection
+- Bollinger Band rejection
+- Volatility expansion
+- Buying exhaustion
+- Long liquidation events
+- Open-interest behavior
+- Funding-rate conditions
+- Higher-timeframe resistance
+- Resistance-zone rejection
+
+---
+
+9. MARKET STRUCTURE
+
+Create a market-structure engine capable of identifying:
+
+- Higher highs
+- Higher lows
+- Lower highs
+- Lower lows
+- Break of structure
+- Change of character
+- Support
+- Resistance
+- Local highs
+- Local lows
+- Trend direction
+- Consolidation
+- Breakouts
+- Fake breakouts
+
+The reversal engine should give additional weight to actual structure changes.
+
+---
+
+10. DIVERGENCE ENGINE
+
+Build automatic divergence detection.
+
+Detect:
+
+Bullish divergence
+
+Price creates a lower low while the indicator creates a higher low.
+
+Bearish divergence
+
+Price creates a higher high while the indicator creates a lower high.
+
+Detect divergence using:
+
+- RSI
+- MACD
+- Stochastic RSI
+- OBV
+
+Avoid treating tiny differences as valid divergence. Add configurable minimum divergence thresholds.
+
+---
+
+11. VOLUME ANALYSIS
+
+Volume must be a major component.
+
+Calculate:
+
+- Relative volume
+- Volume acceleration
+- Buy/sell volume where available
+- Volume moving average
+- Volume spikes
+- Volume exhaustion
+- Volume confirmation of breakouts
+- Volume confirmation of reversals
+
+Example:
+
+A bullish reversal with increasing price + increasing volume should receive stronger confirmation than a bullish reversal occurring on declining volume.
+
+---
+
+12. ORDER BOOK ANALYSIS
+
+Where Binance provides sufficient data, calculate:
+
+- Bid volume
+- Ask volume
+- Bid/ask ratio
+- Order-book imbalance
+- Large orders
+- Liquidity walls
+- Spread
+- Depth changes
+
+Create:
+
+ORDER_BOOK_BULLISH
+ORDER_BOOK_BEARISH
+ORDER_BOOK_NEUTRAL
+
+Do not rely exclusively on order-book imbalance because spoofing and rapidly changing liquidity can produce misleading signals.
+
+---
+
+13. FUTURES-SPECIFIC ANALYSIS
+
+For Futures-supported symbols calculate:
+
+- Funding rate
+- Open interest
+- Open-interest change
+- Long/short information where officially available
+- Liquidations
+- Mark price
+- Basis where available
+
+Use these only as additional confirmation.
+
+Example:
+
+Price falls sharply + large long liquidations + selling exhaustion + bullish divergence + recovery of support
+
+may increase the bullish reversal score.
+
+Similarly:
+
+Price rises sharply + aggressive long positioning + buying exhaustion + bearish divergence + resistance rejection
+
+may increase the bearish reversal score.
+
+---
+
+14. MULTI-TIMEFRAME CONFIRMATION
+
+Do not generate a "Strong Reversal" merely because the smallest timeframe shows a reversal.
+
+Example:
+
+5m = bullish reversal
+15m = bullish confirmation
+1h = support/reversal structure
+
+This should produce substantially stronger confirmation.
+
+But:
+
+5m = bullish reversal
+15m = bearish
+1h = strong bearish trend
+
+should reduce the confidence score.
+
+Create a multi-timeframe alignment score.
+
+---
+
+15. REVERSAL SCORING ENGINE
+
+Create a transparent scoring system.
+
+Example:
+
+Bullish:
+
+Technical reversal: 20
+Market structure: 20
+Volume: 15
+Momentum: 10
+Order book: 10
+Futures data: 10
+Multi-timeframe confirmation: 15
+
+Total = 100
+
+Bearish uses the equivalent structure.
+
+Make the weights configurable from the admin/settings interface.
+
+Do NOT call the score a guaranteed probability.
+
+Use labels such as:
+
+0–39 = No Signal
+40–59 = Weak
+60–74 = Developing
+75–89 = Strong
+90–100 = Extreme Confluence
+
+These thresholds must be configurable.
+
+---
+
+16. SIGNAL STATES
+
+Each asset should have one of these states:
+
+NO SIGNAL
+
+WATCH
+
+DEVELOPING BULLISH
+
+STRONG BULLISH
+
+DEVELOPING BEARISH
+
+STRONG BEARISH
+
+CONFIRMED BULLISH
+
+CONFIRMED BEARISH
+
+INVALIDATED
+
+The signal must include a timestamp.
+
+---
+
+17. SIGNAL CONFIRMATION
+
+Separate:
+
+EARLY SIGNAL
+
+from:
+
+CONFIRMED SIGNAL
+
+Example:
+
+EARLY BULLISH:
+
+RSI divergence + oversold + support reaction
+
+CONFIRMED BULLISH:
+
+Early signal
++
+higher low
++
+break of structure
++
+volume confirmation
++
+multi-timeframe confirmation
+
+This reduces false positives.
+
+---
+
+18. SIGNAL INVALIDATION
+
+Every signal must have an invalidation condition.
+
+Example:
+
+Bullish signal invalidated if:
+
+- Support breaks
+- Structure returns bearish
+- Volume confirmation fails
+- Price closes below invalidation level
+
+Bearish signal invalidated if:
+
+- Resistance breaks
+- Structure becomes bullish
+- Volume confirmation fails
+- Price closes above invalidation level
+
+---
+
+19. RISK ENGINE
+
+Create a dedicated risk engine.
+
+Before any trade is executed, calculate:
+
+- Entry
+- Stop loss
+- Take profit 1
+- Take profit 2
+- Take profit 3
+- Risk/reward ratio
+- Position size
+- Maximum account risk
+- Estimated fees
+- Slippage estimate
+- Liquidation risk for Futures
+- Maximum simultaneous positions
+
+Allow the user to configure:
+
+Maximum risk per trade
+Maximum daily loss
+Maximum open positions
+Maximum exposure per asset
+Maximum Futures leverage
+Maximum drawdown
+
+If a trade violates risk rules:
+
+DO NOT EXECUTE.
+
+---
+
+20. SPOT EXECUTION
+
+Support Binance Spot execution where officially supported.
+
+Allow:
+
+- Market order
+- Limit order
+- Stop/stop-limit mechanisms where supported
+- Take profit mechanisms where supported
+- Position tracking
+
+For Spot:
+
+Risk should be calculated based on the amount of capital allocated to the position.
+
+---
+
+21. FUTURES EXECUTION
+
+Support Binance Futures only when LIVE TRADING is explicitly enabled.
+
+Allow configuration of:
+
+- Long
+- Short
+- Leverage
+- Margin mode where supported
+- Position size
+- Stop loss
+- Take profit
+- Reduce-only orders where applicable
+
+Default Futures leverage:
+
+1x
+
+Do not automatically increase leverage.
+
+Add a maximum leverage safety setting.
+
+---
+
+22. CONVERT
+
+Treat Binance Convert as a separate conversion mechanism.
+
+Do not pretend Convert is equivalent to Spot order-book trading.
+
+Where official Binance API functionality allows it, support:
+
+Asset A → Asset B
+
+Show:
+
+- Current quote
+- Amount received
+- Quote expiration
+- Estimated difference from market price where available
+
+Do not execute a conversion without displaying the final quote to the user in manual-confirmation mode.
+
+---
+
+23. PAPER TRADING ENGINE
+
+Build a complete paper-trading simulator.
+
+When enabled:
+
+The model generates signals exactly as it would in live mode.
+
+Instead of sending Binance orders, simulate them.
+
+Track:
+
+- Entry
+- Exit
+- Profit/loss
+- Fees
+- Slippage
+- Maximum drawdown
+- Win rate
+- Loss rate
+- Average win
+- Average loss
+- Risk/reward
+- Profit factor
+- Consecutive wins
+- Consecutive losses
+
+Do not allow backtest results to be presented as guaranteed future performance.
+
+---
+
+24. BACKTESTING ENGINE
+
+Allow historical testing across Binance data.
+
+Inputs:
+
+- Coin
+- Date range
+- Timeframe
+- Strategy
+- Initial capital
+- Risk per trade
+- Fees
+- Slippage
+
+Output:
+
+- Total trades
+- Winning trades
+- Losing trades
+- Net P/L
+- Maximum drawdown
+- Profit factor
+- Average trade
+- Largest win
+- Largest loss
+- Longest losing streak
+- Sharpe ratio where appropriate
+
+Prevent look-ahead bias.
+
+Do not use future candles or future indicator information when generating historical signals.
+
+---
+
+25. DASHBOARD
+
+Create a professional crypto trading dashboard.
+
+Main sections:
+
+MARKET SCANNER
+
+Columns:
+
+Coin
+Price
+24h %
+Volume
+Timeframe
+Trend
+Bullish Score
+Bearish Score
+Signal
+Volume
+RSI
+MACD
+Volatility
+Confidence
+Updated
+
+Allow sorting by:
+
+- Bullish score
+- Bearish score
+- Volume
+- Price change
+- Volatility
+- Signal strength
+
+---
+
+26. TOP REVERSALS
+
+Create dedicated cards:
+
+TOP BULLISH REVERSALS
+
+TOP BEARISH REVERSALS
+
+Each card displays:
+
+Coin
+Current price
+Signal
+Score
+Primary timeframe
+Higher timeframe
+Key confirmation factors
+Invalidation level
+Potential entry zone
+Potential TP levels
+Risk/reward
+
+Do not describe any trade as guaranteed.
+
+---
+
+27. COIN DETAIL PAGE
+
+Clicking a coin opens a detailed analysis page.
+
+Display:
+
+- Interactive candlestick chart
+- EMA lines
+- VWAP
+- Bollinger Bands
+- Support/resistance
+- Entry zone
+- Stop-loss zone
+- Take-profit zones
+- Bullish score
+- Bearish score
+- RSI
+- MACD
+- Volume
+- Order book
+- Funding
+- Open interest
+- Liquidations
+- Market structure
+- Divergence
+- Signal history
+
+---
+
+28. SIGNAL EXPLANATION
+
+Every signal must explain WHY it was generated.
+
+Example:
+
+BULLISH REVERSAL — 82/100
+
+Reasons:
+
+✓ Bullish RSI divergence
+✓ Higher low formed
+✓ Volume increased 42%
+✓ Price reclaimed EMA20
+✓ 15m structure turned bullish
+✓ Support successfully retested
+
+Warnings:
+
+⚠ 1h trend remains bearish
+⚠ High volatility
+
+This is more useful than simply displaying "BUY."
+
+---
+
+29. ALERT SYSTEM
+
+Allow alerts through the application's supported notification system.
+
+Alert types:
+
+- Strong bullish reversal
+- Strong bearish reversal
+- Signal confirmation
+- Signal invalidation
+- TP reached
+- SL reached
+- Large volume spike
+- Large volatility spike
+- Liquidation event
+- API error
+- Order failure
+
+Allow users to configure minimum signal score.
+
+---
+
+30. DATABASE
+
+Create appropriate database tables/models for:
+
+Users
+API connections
+Symbols
+Market candles
+Indicators
+Signals
+Signal factors
+Signal history
+Paper trades
+Live trades
+Orders
+Positions
+Risk settings
+Strategy settings
+Backtest runs
+System events
+Alerts
+
+Never store Binance API secrets in plaintext if they must be persisted.
+
+Use encryption/secrets management appropriate for the deployment environment.
+
+---
+
+31. ADMIN CONTROLS
+
+Create an admin/settings interface for:
+
+- Signal thresholds
+- Indicator weights
+- Risk settings
+- Timeframes
+- Supported markets
+- Minimum volume
+- Minimum liquidity
+- Paper/live mode
+- Maximum leverage
+- Maximum risk
+- Alert thresholds
+- Feature toggles
+
+Keep strategy configuration separate from execution permissions.
+
+---
+
+32. FRONTEND DESIGN
+
+Use a professional modern crypto-trading interface.
+
+Requirements:
+
+- Responsive mobile design
+- Desktop dashboard
+- Dark trading interface
+- Clear green/red market states
+- Professional charts
+- Fast scanner
+- Minimal unnecessary animation
+- Clear risk warnings
+- No fake performance claims
+- No guaranteed-profit language
+
+Use "Vixus" branding only if this project is being integrated into Vixus.
+
+Do NOT display "Vixus AI".
+
+---
+
+33. PERFORMANCE
+
+The scanner must be designed for many Binance symbols.
+
+Do not create one unnecessary WebSocket connection per indicator.
+
+Use an efficient market-data architecture.
+
+Use:
+
+- Shared WebSocket streams
+- Cached market data
+- Incremental indicator calculations where appropriate
+- Debounced UI updates
+- Background workers
+- Queue processing where required
+
+Avoid blocking the main application thread.
+
+---
+
+34. RELIABILITY
+
+Implement:
+
+- WebSocket reconnect
+- Heartbeat
+- Retry logic
+- API rate-limit handling
+- Request throttling
+- Order idempotency
+- Duplicate-order protection
+- Database transactions
+- Error logging
+- Health checks
+- Monitoring
+- Graceful shutdown
+
+If Binance connectivity is lost:
+
+STOP NEW AUTOMATED ORDERS.
+
+Existing positions should remain protected by exchange-side protective orders where supported.
+
+---
+
+35. SECURITY
+
+Implement:
+
+- Server-side API credentials
+- Encryption at rest
+- HTTPS
+- Secure cookies
+- CSRF protection where applicable
+- Authentication
+- 2FA support where appropriate
+- Rate limiting
+- Input validation
+- Permission separation
+- Audit logging
+
+Never place Binance API secrets inside:
+
+- frontend source code
+- JavaScript bundles
+- public environment variables
+- Git repositories
+- logs
+- client-side local storage
+
+---
+
+36. MODEL VALIDATION
+
+Before allowing LIVE TRADING:
+
+Test the reversal model against historical data.
+
+Perform:
+
+- Out-of-sample testing
+- Walk-forward testing
+- Different market regimes
+- Bull markets
+- Bear markets
+- Sideways markets
+- High-volatility periods
+- Low-volatility periods
+- Meme-coin-specific periods
+
+Do not optimize the model solely on historical data until it looks profitable.
+
+Watch for overfitting.
+
+---
+
+37. IMPORTANT MEME-COIN FILTERS
+
+Because meme coins can experience extreme volatility, add:
+
+- Minimum liquidity filter
+- Maximum spread filter
+- Maximum volatility filter
+- Sudden pump detector
+- Sudden dump detector
+- Volume anomaly detector
+- Price-gap detector
+- Low-liquidity warning
+- Slippage warning
+- New-listing warning where data permits
+
+A coin with extreme volatility should not automatically receive a stronger signal.
+
+---
+
+38. API KEY PERMISSIONS
+
+The UI must clearly explain which Binance permissions are required.
+
+Prefer the minimum required permissions.
+
+For analysis-only mode:
+
+Market data only.
+
+For Spot trading:
+
+Trading permission.
+
+For Futures:
+
+Futures trading permission.
+
+Never request withdrawal permission unless there is an unavoidable official requirement, and never implement withdrawal functionality as part of this system.
+
+---
+
+39. DEVELOPMENT PHASES
+
+Build in this order:
+
+PHASE 1
+Binance market-data connection.
+
+PHASE 2
+Real-time scanner.
+
+PHASE 3
+Indicator engine.
+
+PHASE 4
+Market-structure engine.
+
+PHASE 5
+Divergence engine.
+
+PHASE 6
+Reversal scoring engine.
+
+PHASE 7
+Signal dashboard.
+
+PHASE 8
+Historical backtesting.
+
+PHASE 9
+Paper trading.
+
+PHASE 10
+Risk engine.
+
+PHASE 11
+Binance Spot execution.
+
+PHASE 12
+Binance Futures execution.
+
+PHASE 13
+Convert integration where officially supported.
+
+PHASE 14
+Alerts and monitoring.
+
+Do not skip directly to live trading.
+
+---
+
+40. FINAL REQUIREMENT
+
+Before writing code:
+
+1. Inspect the existing project structure.
+2. Identify the existing frontend/backend framework.
+3. Identify the database.
+4. Identify the deployment environment.
+5. Identify existing authentication.
+6. Identify existing Binance integrations.
+7. Reuse existing architecture where appropriate.
+8. Do not unnecessarily rewrite working components.
+9. Check current official Binance API documentation for every endpoint being implemented.
+10. Clearly separate analysis, paper trading, and live execution.
+
+Then implement the system incrementally.
+
+After each major phase:
+
+- Run tests.
+- Fix TypeScript/build errors.
+- Verify API behavior.
+- Verify WebSocket reconnection.
+- Verify database writes.
+- Verify signal calculations.
+- Verify that no secret credentials reach the frontend.
+
+The final product should function as a real-time Binance market-reversal intelligence platform with optional Spot/Futures execution, rather than simply being an RSI-based trading bot.
