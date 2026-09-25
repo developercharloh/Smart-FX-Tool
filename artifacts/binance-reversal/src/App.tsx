@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link, Route, Router as WouterRouter, Switch, useLocation, useParams } from 'wouter';
 import { useHealthCheck, useGetMarketAnalysis, getGetMarketAnalysisQueryKey, useGetMarketScanner, getGetMarketScannerQueryKey } from '@workspace/api-client-react';
 import type { Candle, IndicatorSet, MarketAnalysis, MarketType, ScannerItem, Signal, Timeframe, Trend } from '@workspace/api-client-react';
-import { Activity, ArrowDownRight, ArrowLeft, ArrowUpRight, BarChart3, BookOpen, ChevronDown, ChevronUp, CircleAlert, Clock3, Filter, Gauge, Layers3, ListFilter, Menu, RefreshCw, Search, ShieldAlert, SlidersHorizontal, SortAsc, Wifi } from 'lucide-react';
+import { Activity, ArrowDownRight, ArrowLeft, ArrowRight, ArrowUpRight, BarChart3, BookOpen, CheckCircle2, ChevronDown, ChevronUp, CircleAlert, Clock3, Filter, Gauge, Layers3, ListFilter, Menu, Radar, RefreshCw, Search, ShieldAlert, SlidersHorizontal, SortAsc, Wifi } from 'lucide-react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
@@ -72,7 +72,8 @@ function Shell({ children }: { children: React.ReactNode }) {
           <span className="text-primary" data-testid="status-market-feed">Read-only market data</span>
         </div>
         <nav className="ml-auto hidden items-center gap-1 sm:flex">
-          <Link href="/" data-testid="link-scanner" className={`rounded px-3 py-2 text-xs font-semibold transition ${location === '/' ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>Scanner</Link>
+          <Link href="/" data-testid="link-live-signals" className={`rounded px-3 py-2 text-xs font-semibold transition ${location === '/' ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>Live signals</Link>
+          <Link href="/scanner" data-testid="link-scanner" className={`rounded px-3 py-2 text-xs font-semibold transition ${location === '/scanner' ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>Scanner</Link>
           <span className="rounded px-3 py-2 text-xs font-semibold text-muted-foreground/50">Paper trading <span className="ml-1 text-[9px] uppercase">Soon</span></span>
         </nav>
         <div className="ml-auto flex items-center gap-3 sm:ml-3">
@@ -81,7 +82,8 @@ function Shell({ children }: { children: React.ReactNode }) {
         </div>
       </div>
       {menuOpen && <div className="border-t border-border bg-card px-4 py-3 sm:hidden">
-        <Link href="/" data-testid="link-mobile-scanner" onClick={() => setMenuOpen(false)} className="block rounded bg-secondary px-3 py-2 text-xs font-semibold">Scanner</Link>
+         <Link href="/" data-testid="link-mobile-live-signals" onClick={() => setMenuOpen(false)} className={`block rounded px-3 py-2 text-xs font-semibold ${location === '/' ? 'bg-secondary' : ''}`}>Live signals</Link>
+         <Link href="/scanner" data-testid="link-mobile-scanner" onClick={() => setMenuOpen(false)} className={`mt-1 block rounded px-3 py-2 text-xs font-semibold ${location === '/scanner' ? 'bg-secondary' : ''}`}>Scanner</Link>
         <div className="mt-2 px-3 py-2 text-xs text-muted-foreground">Paper trading is unavailable until implemented.</div>
       </div>}
     </header>
@@ -106,9 +108,9 @@ function ScannerSkeleton() {
   return <div className="space-y-2">{Array.from({ length: 6 }).map((_, index) => <div className="skeleton h-[58px] rounded" key={index} />)}</div>;
 }
 
-function SignalBadge({ signal }: { signal: Signal | string }) {
+function SignalBadge({ signal, testId }: { signal: Signal | string; testId?: string }) {
   const tone = signalTone(signal);
-  return <span className={`inline-flex items-center gap-1.5 rounded border px-2 py-1 text-[10px] font-bold uppercase tracking-[.08em] ${tone === 'up' ? 'border-[hsl(155_62%_54%/.25)] bg-up text-up' : tone === 'down' ? 'border-[hsl(3_73%_59%/.25)] bg-down text-down' : 'border-border bg-neutral text-neutral'}`}>
+  return <span data-testid={testId} className={`inline-flex items-center gap-1.5 rounded border px-2 py-1 text-[10px] font-bold uppercase tracking-[.08em] ${tone === 'up' ? 'border-[hsl(155_62%_54%/.25)] bg-up text-up' : tone === 'down' ? 'border-[hsl(3_73%_59%/.25)] bg-down text-down' : 'border-border bg-neutral text-neutral'}`}>
     {tone === 'up' ? <ArrowUpRight className="h-3 w-3" /> : tone === 'down' ? <ArrowDownRight className="h-3 w-3" /> : <span className="h-1.5 w-1.5 rounded-full bg-current" />}{signal}
   </span>;
 }
@@ -117,10 +119,10 @@ function TrendPill({ label, trend }: { label: string; trend: Trend }) {
   return <div className="flex items-center gap-2"><span className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</span><span className={`mono text-[10px] font-medium ${trendTone(trend) === 'up' ? 'text-up' : trendTone(trend) === 'down' ? 'text-down' : 'text-neutral'}`}>{trend}</span></div>;
 }
 
-function OverviewCard({ label, value, detail, tone = 'neutral', icon }: { label: string; value: string; detail: string; tone?: 'up' | 'down' | 'neutral'; icon: React.ReactNode }) {
-  return <div className="terminal-panel rounded p-4">
+function OverviewCard({ label, value, detail, tone = 'neutral', icon, testId }: { label: string; value: string; detail: string; tone?: 'up' | 'down' | 'neutral'; icon: React.ReactNode; testId?: string }) {
+  return <div className="terminal-panel rounded p-4" data-testid={testId}>
     <div className="mb-3 flex items-center justify-between"><span className="text-[10px] font-semibold uppercase tracking-[.16em] text-muted-foreground">{label}</span><span className={tone === 'up' ? 'text-up' : tone === 'down' ? 'text-down' : 'text-primary'}>{icon}</span></div>
-    <div className="mono tabular text-xl font-medium text-foreground">{value}</div><div className="mt-1 text-[10px] text-muted-foreground">{detail}</div>
+    <div className="mono tabular text-xl font-medium text-foreground" data-testid={testId ? `${testId}-value` : undefined}>{value}</div><div className="mt-1 text-[10px] text-muted-foreground">{detail}</div>
   </div>;
 }
 
@@ -153,6 +155,142 @@ function OpportunityCard({ item }: { item: ScannerItem }) {
   </Link>;
 }
 
+const signalPriority: Record<string, number> = {
+  'CONFIRMED BULLISH': 6,
+  'CONFIRMED BEARISH': 6,
+  'STRONG BULLISH': 5,
+  'STRONG BEARISH': 5,
+  'DEVELOPING BULLISH': 4,
+  'DEVELOPING BEARISH': 4,
+  WATCH: 2,
+  'NO SIGNAL': 1,
+  INVALIDATED: 0,
+};
+
+function isDirectionalSignal(signal: Signal | string) {
+  return signal.includes('BULLISH') || signal.includes('BEARISH');
+}
+
+function isBoardSignal(item: ScannerItem) {
+  return isDirectionalSignal(item.signal) || item.signal === 'WATCH';
+}
+
+function signalScore(item: ScannerItem) {
+  return Math.max(item.bullishScore, item.bearishScore);
+}
+
+function SignalContext({ item }: { item: ScannerItem }) {
+  return <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground" data-testid={`context-signal-${item.symbol}`}>
+    <span>Primary <strong className="mono font-medium text-foreground">{item.primaryTimeframe}</strong></span>
+    <span>Confirm <strong className="mono font-medium text-foreground">{item.confirmationTimeframe}</strong></span>
+    <span>Trend <strong className="mono font-medium text-foreground">{item.trendTimeframe}</strong></span>
+  </div>;
+}
+
+function LiveSignalCard({ item, featured = false }: { item: ScannerItem; featured?: boolean }) {
+  const bullish = item.signal.includes('BULLISH') || (item.signal === 'WATCH' && item.bullishScore >= item.bearishScore);
+  const factors = bullish ? item.bullishFactors : item.bearishFactors;
+  const factorHeading = item.signal === 'WATCH'
+    ? `${bullish ? 'Bullish' : 'Bearish'} evidence lead`
+    : `${bullish ? 'Bullish' : 'Bearish'} factors`;
+  const tone = bullish ? 'up' : 'down';
+  return <Link href={`/markets/${item.symbol}`} data-testid={`card-live-signal-${item.symbol}`} className={`group terminal-panel block rounded p-4 transition hover:border-primary/60 ${featured ? 'border-primary/35 bg-[linear-gradient(135deg,hsl(220_22%_12%),hsl(220_22%_9%))] lg:p-5' : ''}`}>
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <div className="flex items-center gap-2">
+          <span className="mono text-lg font-medium text-foreground group-hover:text-primary" data-testid={`text-live-symbol-${item.symbol}`}>{item.baseAsset}<span className="text-muted-foreground">/{item.quoteAsset}</span></span>
+          {featured && <span className="rounded border border-primary/25 bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[.12em] text-primary">Priority read</span>}
+        </div>
+        <div className="mt-1"><SignalContext item={item} /></div>
+      </div>
+      <SignalBadge signal={item.signal} testId={`badge-live-signal-${item.symbol}`} />
+    </div>
+    <div className="mt-5 grid grid-cols-[1fr_auto] items-end gap-4">
+      <div>
+        <div className="mono tabular text-xl text-foreground" data-testid={`text-live-price-${item.symbol}`}>{formatPrice(item.lastPrice)}</div>
+        <div className={`mono mt-1 text-xs ${item.priceChangePercent >= 0 ? 'text-up' : 'text-down'}`}>{item.priceChangePercent >= 0 ? '+' : ''}{item.priceChangePercent.toFixed(2)}% / 24h</div>
+      </div>
+      <div className="text-right">
+        <div className={`mono tabular text-2xl font-medium ${tone === 'up' ? 'text-up' : 'text-down'}`} data-testid={`text-live-score-${item.symbol}`}>{signalScore(item).toFixed(0)}</div>
+        <div className="text-[9px] uppercase tracking-[.12em] text-muted-foreground">evidence / 100</div>
+      </div>
+    </div>
+    <div className="mt-4 grid grid-cols-2 gap-2 border-y border-border py-3 sm:grid-cols-4">
+      <div><div className="text-[9px] uppercase tracking-wider text-muted-foreground">Confidence</div><div className="mt-1 text-[11px] text-foreground" data-testid={`text-live-confidence-${item.symbol}`}>{item.confidence}</div></div>
+      <div><div className="text-[9px] uppercase tracking-wider text-muted-foreground">Rel. volume</div><div className="mono mt-1 text-[11px] text-foreground">{item.relativeVolume.toFixed(2)}×</div></div>
+      <div><div className="text-[9px] uppercase tracking-wider text-muted-foreground">RSI</div><div className="mono mt-1 text-[11px] text-foreground">{item.rsi == null ? '—' : item.rsi.toFixed(1)}</div></div>
+      <div><div className="text-[9px] uppercase tracking-wider text-muted-foreground">MACD</div><div className={`mono mt-1 text-[11px] ${trendTone(item.macdState) === 'up' ? 'text-up' : trendTone(item.macdState) === 'down' ? 'text-down' : 'text-neutral'}`}>{item.macdState}</div></div>
+    </div>
+    <div className="mt-3">
+      <div className="mb-2 flex items-center justify-between text-[9px] font-bold uppercase tracking-[.14em] text-muted-foreground"><span>{factorHeading}</span><span className="mono text-muted-foreground">{item.spreadPercent == null ? 'Spread —' : `Spread ${item.spreadPercent.toFixed(3)}%`}</span></div>
+      {factors.length ? factors.slice(0, featured ? 3 : 2).map((factor, index) => <div key={`${item.symbol}-${factor}`} className="mb-1.5 flex gap-2 text-[10px] leading-4 text-muted-foreground" data-testid={`text-live-factor-${item.symbol}-${index}`}><span className={`mt-1 h-1 w-1 shrink-0 rounded-full ${tone === 'up' ? 'bg-[hsl(155_62%_54%)]' : 'bg-[hsl(3_73%_59%)]'}`} />{factor}</div>) : <div className="text-[10px] text-muted-foreground">No directional factors returned.</div>}
+    </div>
+    <div className="mt-4 flex items-center justify-between text-[9px] uppercase tracking-[.12em] text-muted-foreground"><span>Updated {formatTime(item.updatedAt)}</span><span className="inline-flex items-center gap-1 text-primary opacity-80 group-hover:opacity-100">Open analysis <ArrowRight className="h-3 w-3" /></span></div>
+  </Link>;
+}
+
+function LiveSignals() {
+  const [market, setMarket] = useState<MarketType>('spot');
+  const [primary, setPrimary] = useState<Timeframe>('15m');
+  const [confirmation, setConfirmation] = useState<Timeframe>('1h');
+  const [trend, setTrend] = useState<Timeframe>('4h');
+  const [contextOpen, setContextOpen] = useState(false);
+  const params = useMemo(() => ({ market, primaryTimeframe: primary, confirmationTimeframe: confirmation, trendTimeframe: trend, minimumQuoteVolume: 1000000, limit: 30 }), [market, primary, confirmation, trend]);
+  const scanner = useGetMarketScanner(params, { query: { refetchInterval: 15000, staleTime: 10000, queryKey: getGetMarketScannerQueryKey(params) } });
+  const snapshot = scanner.data;
+  const liveSignals = useMemo(() => (snapshot?.items ?? [])
+    .filter(isBoardSignal)
+    .sort((a, b) => signalPriority[b.signal] - signalPriority[a.signal] || signalScore(b) - signalScore(a) || b.quoteVolume - a.quoteVolume), [snapshot?.items]);
+  const featured = liveSignals[0];
+  const bullishCount = liveSignals.filter((item) => item.signal.includes('BULLISH')).length;
+  const bearishCount = liveSignals.filter((item) => item.signal.includes('BEARISH')).length;
+  const watchCount = liveSignals.filter((item) => item.signal === 'WATCH').length;
+  const confirmedCount = liveSignals.filter((item) => item.signal.startsWith('CONFIRMED')).length;
+  return <div className="scan-grid -mx-4 -mt-5 min-h-[calc(100dvh-125px)] px-4 pb-10 pt-5 sm:-mx-6 sm:px-6 lg:-mt-7 lg:pt-7">
+    <PageHeading eyebrow="Live market read / 01" title="Signals, while they are still signals." description="Live directional evidence from public Binance markets, ranked by signal strength. Open any read to inspect its factors and timeframes.">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-2 rounded border border-primary/30 bg-primary/10 px-3 py-2 text-[10px] text-primary" data-testid="status-live-signal-feed"><span className={`status-dot ${scanner.isError ? 'offline' : ''}`} /><span className="mono">{scanner.isError ? 'Feed unavailable' : scanner.isFetching ? 'Refreshing' : 'Live signal feed'}</span><span className="text-primary/50">·</span><span className="mono">15s</span></div>
+        <Link href="/scanner" data-testid="link-open-full-scanner" className="inline-flex items-center gap-2 rounded border border-border bg-card px-3 py-2 text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground transition hover:border-primary hover:text-primary">Full scanner <ArrowRight className="h-3 w-3" /></Link>
+      </div>
+    </PageHeading>
+    <section className="terminal-panel mb-4 rounded p-3 sm:mb-5 sm:p-4" data-testid="panel-live-context">
+      <button type="button" aria-expanded={contextOpen} aria-controls="live-signal-context-controls" data-testid="button-toggle-live-context" onClick={() => setContextOpen(!contextOpen)} className="flex w-full items-center justify-between gap-3 text-left lg:hidden">
+        <span className="flex min-w-0 items-center gap-2"><Radar className="h-3.5 w-3.5 shrink-0 text-primary" /><span className="shrink-0 text-[10px] font-bold uppercase tracking-[.16em] text-primary">Signal context</span><span className="truncate text-[10px] text-muted-foreground">{market} · {primary}/{confirmation}/{trend}</span></span>
+        {contextOpen ? <ChevronUp className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />}
+      </button>
+      <div id="live-signal-context-controls" className={`${contextOpen ? 'block' : 'hidden'} lg:block`}>
+        <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+          <div>
+            <div className="mb-2 hidden items-center gap-2 text-[10px] font-bold uppercase tracking-[.16em] text-primary lg:flex"><Radar className="h-3.5 w-3.5" /> Signal context</div>
+            <p className="hidden max-w-xl text-[11px] leading-5 text-muted-foreground lg:block">These controls set the evidence windows for this board. Use the full scanner for universe filters, sorting, and the complete no-signal population.</p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <SelectBox label="Market" value={market} options={markets} onChange={(value) => setMarket(value as MarketType)} testId="select-live-market" />
+            <SelectBox label="Primary" value={primary} options={timeframes} onChange={(value) => setPrimary(value as Timeframe)} testId="select-live-primary-timeframe" />
+            <SelectBox label="Confirm" value={confirmation} options={timeframes} onChange={(value) => setConfirmation(value as Timeframe)} testId="select-live-confirmation-timeframe" />
+            <SelectBox label="Trend" value={trend} options={trendTimeframes} onChange={(value) => setTrend(value as Timeframe)} testId="select-live-trend-timeframe" />
+          </div>
+        </div>
+      </div>
+    </section>
+    {scanner.isLoading && <div className="space-y-3" data-testid="loading-live-signals"><div className="skeleton h-44 rounded" /><div className="grid gap-3 md:grid-cols-2"><div className="skeleton h-64 rounded" /><div className="skeleton h-64 rounded" /></div></div>}
+    {scanner.isError && <div className="terminal-panel flex flex-col items-center justify-center rounded px-6 py-16 text-center" data-testid="state-live-signals-error"><CircleAlert className="mb-3 h-7 w-7 text-down" /><h2 className="text-sm font-semibold">Live signal feed unavailable</h2><p className="mt-2 max-w-xl text-xs leading-5 text-muted-foreground">{scanner.error instanceof Error ? scanner.error.message : 'The scanner could not reach Binance public market data.'} Nothing is inferred while the snapshot is unavailable.</p><button type="button" data-testid="button-retry-live-signals" onClick={() => scanner.refetch()} className="mt-5 inline-flex items-center gap-2 rounded border border-border bg-secondary px-3 py-2 text-xs font-semibold hover:border-primary"><RefreshCw className="h-3.5 w-3.5" /> Retry connection</button></div>}
+    {!scanner.isLoading && !scanner.isError && snapshot && <>
+      {!liveSignals.length ? <section className="terminal-panel rounded" data-testid="state-live-signals-empty"><div className="flex min-h-[300px] flex-col items-center justify-center px-6 text-center"><Activity className="mb-4 h-7 w-7 text-muted-foreground/60" /><h2 className="text-sm font-semibold">No live signals</h2><p className="mt-2 max-w-lg text-xs leading-5 text-muted-foreground">The current verified snapshot returned no bullish, bearish, or WATCH states at these timeframes and volume settings. That is an honest read, not a missing forecast.</p><div className="mt-4 flex flex-wrap justify-center gap-2 text-[10px] text-muted-foreground"><span className="rounded bg-secondary px-2 py-1">Primary {primary}</span><span className="rounded bg-secondary px-2 py-1">Confirm {confirmation}</span><span className="rounded bg-secondary px-2 py-1">Trend {trend}</span><span className="rounded bg-secondary px-2 py-1">{snapshot.items.length} markets checked</span></div><Link href="/scanner" data-testid="link-empty-open-scanner" className="mt-6 inline-flex items-center gap-2 rounded border border-border bg-secondary px-3 py-2 text-xs font-semibold hover:border-primary hover:text-primary">Inspect full universe <ArrowRight className="h-3.5 w-3.5" /></Link></div></section> : <section data-testid="list-live-signals">
+       <div className="mb-3 flex flex-wrap items-end justify-between gap-3"><div><div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[.15em]"><Activity className="h-3.5 w-3.5 text-primary" /> Evidence-ranked board</div><div className="mt-1 text-[11px] text-muted-foreground">Directional and WATCH states only · sorted by signal tier, then heuristic score</div></div><div className="mono text-[10px] text-muted-foreground">Updated {formatTime(snapshot.updatedAt)}</div></div>
+      <div className="grid gap-4 lg:grid-cols-2">{featured && <LiveSignalCard item={featured} featured />}{liveSignals.slice(1).map((item) => <LiveSignalCard item={item} key={item.symbol} />)}</div>
+      </section>}
+      <section className="mt-5 grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4" data-testid="summary-live-signals">
+        <OverviewCard label="Live signals" value={String(liveSignals.length)} detail={`${bullishCount + bearishCount} directional · ${watchCount} watch · $1M volume floor`} tone="neutral" icon={<Radar className="h-4 w-4" />} testId="card-live-signal-count" />
+        <OverviewCard label="Confirmed reads" value={String(confirmedCount)} detail="Highest current evidence tier" tone="up" icon={<CheckCircle2 className="h-4 w-4" />} testId="card-live-confirmed-count" />
+        <OverviewCard label="Bullish / bearish" value={`${bullishCount} / ${bearishCount}`} detail="Direction of returned signals" tone={bullishCount >= bearishCount ? 'up' : 'down'} icon={bullishCount >= bearishCount ? <ArrowUpRight className="h-4 w-4" /> : <ArrowDownRight className="h-4 w-4" />} testId="card-live-direction-split" />
+        <OverviewCard label="Snapshot" value={formatTime(snapshot.updatedAt)} detail={`${market === 'spot' ? 'Spot' : 'USDⓈ-M'} · refreshed every 15s`} icon={<Clock3 className="h-4 w-4" />} testId="card-live-snapshot-time" />
+      </section>
+    <div className="mt-5 flex gap-3 rounded border border-[hsl(38_86%_58%/.25)] bg-[hsl(38_86%_58%/.06)] p-4" data-testid="notice-live-signal-boundary"><ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-accent" /><div><div className="text-xs font-semibold text-accent">Evidence is not probability</div><p className="mt-1 text-[11px] leading-5 text-muted-foreground">Scores are heuristic evidence from the returned snapshot, not win probabilities or trading instructions. Verify the factors, timeframes, liquidity, and your own risk context before forming a view.</p></div></div>
+    </>}
+  </div>;
+}
+
 function Dashboard() {
   const [market, setMarket] = useState<MarketType>('spot');
   const [primary, setPrimary] = useState<Timeframe>('15m');
@@ -177,7 +315,7 @@ function Dashboard() {
   const bearish = useMemo(() => [...(snapshot?.items ?? [])].sort((a, b) => b.bearishScore - a.bearishScore).slice(0, 2), [snapshot?.items]);
   const handleSort = (key: keyof ScannerItem) => setSort((current) => current.key === key ? { key, direction: current.direction === 'desc' ? 'asc' : 'desc' } : { key, direction: 'desc' });
   return <div className="scan-grid -mx-4 -mt-5 min-h-[calc(100dvh-125px)] px-4 pb-10 pt-5 sm:-mx-6 sm:px-6 lg:-mt-7 lg:pt-7">
-    <PageHeading eyebrow="Market monitor / 01" title="Reversal scanner" description="A ranked view of public exchange evidence. Signals describe confluence, not certainty; every row is a starting point for verification.">
+     <PageHeading eyebrow="Full universe / 02" title="Reversal scanner" description="The complete ranked universe of public exchange evidence. Signals describe confluence, not certainty; every row is a starting point for verification.">
       <div className="flex items-center gap-2 rounded border border-border bg-card px-3 py-2 text-[10px] text-muted-foreground"><span className={`status-dot ${scanner.isError ? 'offline' : ''}`} /><span className="mono">{scanner.isError ? 'Feed unavailable' : scanner.isFetching ? 'Refreshing' : 'Live snapshot'}</span><span className="text-border">·</span><span className="mono">{formatTime(snapshot?.updatedAt)}</span></div>
     </PageHeading>
     <section className="terminal-panel mb-5 rounded p-3 sm:p-4" data-testid="panel-scanner-controls">
@@ -347,8 +485,8 @@ function MarketDetail() {
   const book = data?.orderBook;
   const imbalanceTone = book && book.imbalance >= 0 ? 'up' : 'down';
   return <div className="scan-grid -mx-4 -mt-5 min-h-[calc(100dvh-125px)] px-4 pb-10 pt-5 sm:-mx-6 sm:px-6 lg:-mt-7 lg:pt-7">
-    <div className="mb-6 flex flex-wrap items-center justify-between gap-3"><Link href="/" data-testid="link-return-scanner" className="inline-flex items-center gap-2 text-xs font-semibold text-muted-foreground hover:text-primary"><ArrowLeft className="h-4 w-4" /> Return to scanner</Link><div className="flex items-center gap-3"><span className="inline-flex items-center gap-2 rounded border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-primary"><BookOpen className="h-3 w-3" /> Analysis mode</span><span className="mono text-[10px] text-muted-foreground">{analysis.isFetching ? 'Updating' : `Updated ${formatTime(item?.updatedAt)}`}</span></div></div>
-    <PageHeading eyebrow="Market detail / 02" title={item ? `${item.baseAsset}/${item.quoteAsset}` : symbol.toUpperCase()} description="Detailed candle, indicator, structure, divergence, and order-book context for one public market. No trading actions are available.">
+     <div className="mb-6 flex flex-wrap items-center justify-between gap-3"><Link href="/" data-testid="link-return-live-signals" className="inline-flex items-center gap-2 text-xs font-semibold text-muted-foreground hover:text-primary"><ArrowLeft className="h-4 w-4" /> Return to live signals</Link><div className="flex items-center gap-3"><span className="inline-flex items-center gap-2 rounded border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-primary"><BookOpen className="h-3 w-3" /> Analysis mode</span><span className="mono text-[10px] text-muted-foreground">{analysis.isFetching ? 'Updating' : `Updated ${formatTime(item?.updatedAt)}`}</span></div></div>
+     <PageHeading eyebrow="Market detail / 03" title={item ? `${item.baseAsset}/${item.quoteAsset}` : symbol.toUpperCase()} description="Detailed candle, indicator, structure, divergence, and order-book context for one public market. No trading actions are available.">
       <div className="flex flex-wrap items-end gap-3"><SelectBox label="Market" value={market} options={markets} onChange={(value) => setMarket(value as MarketType)} testId="select-analysis-market" /><SelectBox label="Primary" value={primary} options={timeframes} onChange={(value) => setPrimary(value as Timeframe)} testId="select-analysis-primary" /><SelectBox label="Confirm" value={confirmation} options={timeframes} onChange={(value) => setConfirmation(value as Timeframe)} testId="select-analysis-confirmation" /><SelectBox label="Trend" value={trend} options={trendTimeframes} onChange={(value) => setTrend(value as Timeframe)} testId="select-analysis-trend" /></div>
     </PageHeading>
     {analysis.isLoading && <div className="space-y-4"><div className="skeleton h-24 rounded" /><div className="skeleton h-[300px] rounded" /><div className="grid gap-4 md:grid-cols-2"><div className="skeleton h-48 rounded" /><div className="skeleton h-48 rounded" /></div></div>}
@@ -363,7 +501,7 @@ function MarketDetail() {
 }
 
 function Router() {
-  return <ErrorBoundary resetKey={useLocation()[0]}><Switch><Route path="/" component={Dashboard} /><Route path="/markets/:symbol" component={MarketDetail} /><Route component={NotFound} /></Switch></ErrorBoundary>;
+  return <ErrorBoundary resetKey={useLocation()[0]}><Switch><Route path="/" component={LiveSignals} /><Route path="/scanner" component={Dashboard} /><Route path="/markets/:symbol" component={MarketDetail} /><Route component={NotFound} /></Switch></ErrorBoundary>;
 }
 
 function App() {
